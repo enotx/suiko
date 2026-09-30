@@ -1,0 +1,100 @@
+[gd_scene format=3 uid="uid://7xlgo6j3waiu"]
+
+[ext_resource type="Script" uid="uid://b7jofb7pwjfgy" path="res://scenes/main/main.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://qnrn4k1ke4n" path="res://scenes/town/map_view.gd" id="2_map"]
+[ext_resource type="PackedScene" path="res://scenes/town/town_3d.tscn" id="3_world"]
+
+[node name="Main" type="Node" unique_id=2088239120]
+script = ExtResource("1_main")
+
+[node name="MapArea" type="Control" parent="." unique_id=437147460]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 40.0
+offset_top = 140.0
+offset_right = 552.0
+offset_bottom = 524.0
+mouse_default_cursor_shape = 2
+
+[node name="Map2D" type="Node2D" parent="MapArea" unique_id=859277417]
+visible = false
+script = ExtResource("2_map")
+
+[node name="WorldViewport" type="SubViewport" parent="MapArea" unique_id=39037862]
+own_world_3d = true
+gui_disable_input = true
+size = Vector2i(512, 384)
+render_target_update_mode = 4
+
+[node name="Town3D" parent="MapArea/WorldViewport" unique_id=185950468 instance=ExtResource("3_world")]
+
+[node name="WorldImage" type="TextureRect" parent="MapArea" unique_id=352005412]
+layout_mode = 0
+offset_right = 512.0
+offset_bottom = 384.0
+mouse_filter = 2
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=61561917]
+
+[node name="Title" type="Label" parent="UI" unique_id=1840419181]
+offset_left = 40.0
+offset_top = 20.0
+offset_right = 850.0
+offset_bottom = 55.0
+theme_override_font_sizes/font_size = 26
+text = "梁山起家 · 同一座城镇，两种视图"
+
+[node name="Resources" type="Label" parent="UI" unique_id=254682159]
+offset_left = 40.0
+offset_top = 68.0
+offset_right = 900.0
+offset_bottom = 98.0
+theme_override_font_sizes/font_size = 20
+
+[node name="Status" type="Label" parent="UI" unique_id=1559223643]
+offset_left = 35.0
+offset_top = 81.0
+offset_right = 895.0
+offset_bottom = 108.0
+
+[node name="Instructions" type="Label" parent="UI" unique_id=408713511]
+offset_left = 595.0
+offset_top = 183.0
+offset_right = 925.0
+offset_bottom = 385.0
+text = "蓝色：水泊，不能建造
+绿色：土地，可建造农田
+黄色：已建造的农田
+
+点击土地，花费 10 木材。
+切换视图不会重置建筑或资源。
+
+当前还没有生产、战斗和存档。"
+
+[node name="ResetButton" type="Button" parent="UI" unique_id=817386219]
+offset_left = 595.0
+offset_top = 456.0
+offset_right = 810.0
+offset_bottom = 500.0
+text = "重置城镇"
+
+[node name="Footer" type="Label" parent="UI" unique_id=423037683]
+offset_left = 40.0
+offset_top = 545.0
+offset_right = 900.0
+offset_bottom = 575.0
+text = "学习目标：切换的是画面，建筑、木材和规则始终是同一份。"
+
+[node name="ViewLabel" type="Label" parent="UI" unique_id=481757889]
+offset_left = 595.0
+offset_top = 142.0
+offset_right = 930.0
+offset_bottom = 176.0
+theme_override_font_sizes/font_size = 21
+
+[node name="ViewButton" type="Button" parent="UI" unique_id=441771894]
+offset_left = 595.0
+offset_top = 400.0
+offset_right = 810.0
+offset_bottom = 444.0
+text = "切换到 2D"

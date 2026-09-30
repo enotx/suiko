@@ -1,0 +1,8 @@
+# Godot generates local imports and editor state here.
+.godot/
+# Local export credentials must not be committed.
+.godot/export_credentials.cfg
+# Generated exports.
+build/
+.DS_Store
+Thumbs.db
