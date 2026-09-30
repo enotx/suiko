@@ -20,6 +20,9 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [PLAN.md](PLAN.md) | 可执行任务、依赖、状态与验收交接台账 |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md) | 开工回滚点、实现提交、用户验收后提交 |
+| [docs/windows-git-setup.md](docs/windows-git-setup.md) | Windows Git 与 SSH 操作说明 |
 | [VISION.md](VISION.md) | 背景、体验、核心玩法与长期方向 |
 | [docs/STATUS.md](docs/STATUS.md) | 已实现、未实现、验证与下一步 |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 已确认规则、旧提案与待定问题 |
@@ -61,4 +64,4 @@ godot --path . --script res://tests/test_dual_view.gd -- --capture
 具体覆盖范围和限制见 STATUS。
 
 `.godot/` 与 `build/` 不提交，生成的 `.gd.uid` 随脚本保留。
-未配置 VPS、远端仓库或导出平台；最近检查没有初始化 Git 仓库。
+已初始化 main 分支，原型回滚基线为 `7eaf05f`。目标远端为 `enotx/suiko`；首次推送进度见 PLAN 的 P01。未配置 VPS 或导出平台。

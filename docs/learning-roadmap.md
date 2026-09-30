@@ -1,6 +1,6 @@
 # 学习与开发路线
 
-本文件描述建议顺序，不是自动执行全部阶段的授权。现状见 [STATUS](STATUS.md)，规则见 [DECISIONS](DECISIONS.md)，目标见 [VISION](../VISION.md)。
+本文件是教学路线；可执行编号、状态、依赖与验收以 [PLAN](../PLAN.md) 为准，版本管理以 [WORKFLOW](WORKFLOW.md) 为准。这里的顺序不是自动执行全部阶段的授权。现状见 [STATUS](STATUS.md)，规则见 [DECISIONS](DECISIONS.md)，目标见 [VISION](../VISION.md)。
 
 ## 已完成：建造和双视图
 
