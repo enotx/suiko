@@ -79,8 +79,8 @@ func _run() -> void:
     # 小屋顶面也必须指向该农田，而不是它后面的地块。
     var roof_point: Vector2 = main.map_3d.camera.unproject_position(Vector3(5.73, 0.55, 5.68))
     check(main.map_3d.cell_at_position(roof_point) == Vector2i(5, 5), "Pick visible roof")
-    # 选中高亮板不能截获射线：点高亮板边缘视觉区域，仍要拾取到下方农田。
-    var mark_point: Vector2 = main.map_3d.camera.unproject_position(Vector3(5.9, 0.61, 5.9))
+    # 贴地高亮边框不能截获射线：点边框边缘视觉区域，仍要拾取到下方地块。
+    var mark_point: Vector2 = main.map_3d.camera.unproject_position(Vector3(5.95, 0.03, 5.5))
     check(main.map_3d.cell_at_position(mark_point) == Vector2i(5, 5), "Selection mark must not break picking")
     await click_at(main.map_area.global_position + roof_point)
     check(main.town.wood == 90, "Duplicate 3D build must not charge")
@@ -105,7 +105,7 @@ func _run() -> void:
     check(main.selected_cell == Vector2i(8, 7), "2D build auto-selects the new farm")
     await switch_view()
     check(main.showing_3d and main.map_3d.farms.get_child_count() == 12, "3D reflects both farms")
-    check(main.map_3d.selection_mark.position == Vector3(8.5, 0.6, 7.5), "3D mark follows selection")
+    check(main.map_3d.selection_mark.position == Vector3(8.5, 0.0, 7.5), "3D mark follows selection")
     check(main.resources_label.text.contains("80"), "Shared HUD reflects resources")
 
     for i in range(8):

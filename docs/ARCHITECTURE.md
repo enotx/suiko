@@ -71,5 +71,5 @@ godot --path . --script res://tests/test_dual_view.gd -- --capture
 ## 资源与跨平台
 
 .godot/、build/ 不提交，.gd.uid 随脚本保留。路径与大小写一致，不在运行代码写入本机可执行文件路径。
-中文目前依赖系统字体回退，发行前准备可嵌入字体；正式素材记录来源和许可。
+中文已嵌入 Noto Sans SC（OFL，`assets/fonts/`，经 `gui/theme/custom_font` 全局生效），Web 导出可直接显示；新增界面文本无需额外配置。正式素材记录来源和许可。
 Compatibility 和 GDScript 是多端起点，不代表已完成跨平台验证。
