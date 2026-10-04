@@ -59,17 +59,29 @@ offset_bottom = 108.0
 
 [node name="Instructions" type="Label" parent="UI" unique_id=408713511]
 offset_left = 595.0
-offset_top = 183.0
-offset_right = 925.0
-offset_bottom = 385.0
+offset_top = 318.0
+offset_right = 930.0
+offset_bottom = 398.0
 text = "蓝色：水泊，不能建造
 绿色：土地，可建造农田
-黄色：已建造的农田
+黄色：农田，点击选中查看
 
-点击土地，花费 10 木材。
-切换视图不会重置建筑或资源。
+点击空地建造，花费 10 木材。
+选中在切换视图后保持。"
 
-当前还没有生产、战斗和存档。"
+[node name="SelectionPanel" type="Label" parent="UI"]
+offset_left = 595.0
+offset_top = 184.0
+offset_right = 930.0
+offset_bottom = 262.0
+theme_override_font_sizes/font_size = 18
+
+[node name="DeselectButton" type="Button" parent="UI"]
+offset_left = 595.0
+offset_top = 270.0
+offset_right = 810.0
+offset_bottom = 310.0
+text = "取消选择"
 
 [node name="ResetButton" type="Button" parent="UI" unique_id=817386219]
 offset_left = 595.0

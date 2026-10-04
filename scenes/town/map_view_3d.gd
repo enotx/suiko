@@ -6,6 +6,8 @@ const INVALID_CELL := Vector2i(-1, -1)
 var town: TownState
 var pick_boxes: Array[Dictionary] = []
 var terrain_pick_count: int = 0
+var selected_cell: Vector2i = TownState.INVALID_CELL
+var selection_mark: MeshInstance3D
 
 @onready var terrain: Node3D = $Terrain
 @onready var farms: Node3D = $Farms
@@ -16,6 +18,7 @@ func setup(state: TownState) -> void:
     town = state
     camera.look_at(Vector3(8.0, 0.0, 6.0))
     _create_terrain()
+    _create_selection_mark()
     refresh()
 
 
@@ -57,6 +60,29 @@ func _create_terrain() -> void:
     terrain_pick_count = pick_boxes.size()
 
 
+func _create_selection_mark() -> void:
+    # 选中高亮是独立悬浮薄板：不进入 pick_boxes，不会改变点击拾取结果。
+    var mesh := BoxMesh.new()
+    mesh.size = Vector3(0.9, 0.02, 0.9)
+    selection_mark = MeshInstance3D.new()
+    selection_mark.mesh = mesh
+    var material := StandardMaterial3D.new()
+    material.albedo_color = Color(1.0, 0.84, 0.35, 0.6)
+    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    selection_mark.material_override = material
+    selection_mark.visible = false
+    add_child(selection_mark)
+
+
+func _update_selection_mark() -> void:
+    if town != null and town.buildings.has(selected_cell):
+        # 悬浮在农田屋顶上方，避免与地块或小屋穿插。
+        selection_mark.position = Vector3(selected_cell.x + 0.5, 0.6, selected_cell.y + 0.5)
+        selection_mark.visible = true
+    else:
+        selection_mark.visible = false
+
+
 func refresh() -> void:
     # 原型最多十座农田，先采用简单重建，避免引入同步缓存。
     for child in farms.get_children():
@@ -75,6 +101,7 @@ func refresh() -> void:
                 Vector3(0.42, 0.08, 0.065), crop, cell)
         _box(farms, origin + Vector3(0.73, 0.29, 0.68), Vector3(0.24, 0.36, 0.28), wall, cell)
         _box(farms, origin + Vector3(0.73, 0.51, 0.68), Vector3(0.32, 0.08, 0.36), roof, cell)
+    _update_selection_mark()
 
 
 func cell_at_position(local_position: Vector2) -> Vector2i:

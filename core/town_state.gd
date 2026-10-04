@@ -6,9 +6,15 @@ const WIDTH: int = 16
 const HEIGHT: int = 12
 const BUILD_COST: int = 10
 const STARTING_WOOD: int = 100
+const INVALID_CELL: Vector2i = Vector2i(-1, -1)
+const BUILDING_NAMES: Dictionary = { "farm": "农田" }
 
 var wood: int = STARTING_WOOD
 var buildings: Dictionary = {}
+
+
+func building_name(cell: Vector2i) -> String:
+    return BUILDING_NAMES.get(buildings.get(cell, ""), "未知建筑")
 
 
 func is_inside(cell: Vector2i) -> bool:

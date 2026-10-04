@@ -5,6 +5,7 @@ extends Node
 const TownStateScript = preload("res://core/town_state.gd")
 var town: TownState = TownStateScript.new()
 var showing_3d: bool = true
+var selected_cell: Vector2i = TownState.INVALID_CELL
 
 @onready var map_area: Control = $MapArea
 @onready var map_2d = $MapArea/Map2D
@@ -16,6 +17,8 @@ var showing_3d: bool = true
 @onready var view_label: Label = $UI/ViewLabel
 @onready var reset_button: Button = $UI/ResetButton
 @onready var view_button: Button = $UI/ViewButton
+@onready var selection_label: Label = $UI/SelectionPanel
+@onready var deselect_button: Button = $UI/DeselectButton
 
 
 func _ready() -> void:
@@ -25,8 +28,10 @@ func _ready() -> void:
 	map_area.gui_input.connect(_on_map_input)
 	reset_button.pressed.connect(_reset_town)
 	view_button.pressed.connect(_toggle_view)
-	$UI/Instructions.text = "蓝色：水泊，不能建造\n绿色：土地，可建造农田\n黄色：已建造的农田\n\n点击土地，花费 %d 木材。\n切换视图不会重置建筑或资源。\n\n当前还没有生产、战斗和存档。" % TownState.BUILD_COST
+	deselect_button.pressed.connect(_deselect_cell)
+	$UI/Instructions.text = "蓝色：水泊，不能建造\n绿色：土地，可建造农田\n黄色：农田，点击选中查看\n\n点击空地建造，花费 %d 木材。\n选中在切换视图后保持。" % TownState.BUILD_COST
 	_apply_view()
+	_select_cell(TownState.INVALID_CELL)
 	_refresh_ui("先建一块农田，再切到 2D 查看同一座城镇。")
 
 
@@ -38,11 +43,40 @@ func _on_map_input(event: InputEvent) -> void:
 				cell = map_3d.cell_at_position(event.position)
 			else:
 				cell = map_2d.cell_at_position(event.position)
-			var message := town.try_build(cell)
+			var message: String
+			if town.buildings.has(cell):
+				message = "已选中 %s (%d, %d)。" % [town.building_name(cell), cell.x, cell.y]
+				_select_cell(cell)
+			else:
+				message = town.try_build(cell)
+				if town.buildings.has(cell):
+					# 临时交互约定：建造成功后自动选中新农田，方便立即查看信息。
+					message += " 已自动选中。"
+					_select_cell(cell)
 			map_2d.refresh()
 			map_3d.refresh()
 			_refresh_ui(message)
 			map_area.accept_event()
+
+
+func _select_cell(cell: Vector2i) -> void:
+	# 选中身份是格子坐标，不引用任何视图里的模型节点。
+	selected_cell = cell
+	map_2d.selected_cell = cell
+	map_2d.refresh()
+	map_3d.selected_cell = cell
+	map_3d.refresh()
+	if town.buildings.has(cell):
+		selection_label.text = "选中：%s\n位置：(%d, %d)\n状态：已建成，暂无工作者" % [
+			town.building_name(cell), cell.x, cell.y
+		]
+	else:
+		selection_label.text = "未选中建筑。\n点击已有农田查看信息。"
+
+
+func _deselect_cell() -> void:
+	_select_cell(TownState.INVALID_CELL)
+	_refresh_ui("已取消选择；建筑和木材保持不变。")
 
 
 func _toggle_view() -> void:
@@ -63,8 +97,8 @@ func _apply_view() -> void:
 
 func _reset_town() -> void:
 	town.reset()
-	map_2d.refresh()
-	map_3d.refresh()
+	# 重置必须清除选择，面板不能再引用已被清空的建筑格。
+	_select_cell(TownState.INVALID_CELL)
 	_refresh_ui("已重置城镇；两个视图同步恢复。")
 
 

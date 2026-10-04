@@ -3,6 +3,7 @@ extends Node2D
 
 const CELL_SIZE: int = 32
 var town: TownState
+var selected_cell: Vector2i = TownState.INVALID_CELL
 
 
 func setup(state: TownState) -> void:
@@ -38,3 +39,6 @@ func _draw() -> void:
                 for row in range(3):
                     var start := rect.position + Vector2(9, 10 + row * 6)
                     draw_line(start, start + Vector2(14, 0), Color("896441"), 2.0)
+    if town.buildings.has(selected_cell):
+        var highlight := Rect2(Vector2(selected_cell) * CELL_SIZE, Vector2.ONE * CELL_SIZE)
+        draw_rect(highlight.grow(-2.0), Color("ffd75e"), false, 4.0)
