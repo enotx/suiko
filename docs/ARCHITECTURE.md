@@ -18,7 +18,7 @@ Main (Node, main.gd；持有唯一 TownState)
 
 | 文件 | 职责 |
 | --- | --- |
-| core/town_state.gd | RefCounted；格子规则、木材、建筑、建造和重置 |
+| core/town_state.gd | RefCounted；格子规则、木材、建筑、人物分工、建造和重置 |
 | scenes/main/main.gd | 创建并持有唯一状态；分发点击、调用规则、刷新两种显示、切换视图 |
 | scenes/town/map_view.gd | 只读共享状态，2D 绘制与坐标换算 |
 | scenes/town/map_view_3d.gd | 只读共享状态，创建方块模型，射线选格 |
@@ -41,6 +41,7 @@ WorldImage 忽略鼠标事件，WorldViewport 禁止自动 GUI 输入，避免�
 
 - core 不依赖输入、场景树或画面；允许 Godot 数据类型和 RefCounted/Resource。
 - 两个视图只读状态；Main 调用规则。不要在任一视图里单独推进生产或战斗。
+- 人物分工只记录在人物一侧（`worker_cell`），建筑不反向存储工人，保证一人一工位；多人物时再拆分定义与实例。
 - 2D 用于清晰观察规则，3D 用于空间表现；最终是否把 2D 打磨为完整战略视图另行决定。
 - 数值暂用具名常量；内容增长后再选 Resource 或 JSON 定义体系。
 - 当前 try_build 返回中文提示，未来需要程序区分结果时可改结构化返回值。

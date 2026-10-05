@@ -146,10 +146,41 @@ func _run() -> void:
     check(main.selection_label.text.contains("未选中"), "Panel cleared by deselect")
     check(not main.map_3d.selection_mark.visible, "3D mark hidden after deselect")
 
+    # P03：阮小二分配、调岗、撤回与重置；全程不允许一人占两个工位。
+    check(main.selection_label.text.contains("空闲"), "Panel shows worker idle when nothing selected")
+    check(main.assign_button.disabled and main.withdraw_button.disabled,
+        "Worker buttons disabled without a farm selected")
+    await click_map(Vector2i(6, 3))
+    await click_at(main.assign_button.get_global_rect().get_center())
+    check(main.town.worker_cell == Vector2i(6, 3), "Assign puts worker on the selected farm")
+    check(main.selection_label.text.contains("阮小二"), "Panel shows worker after assign")
+    check(main.assign_button.disabled, "Assign disabled when worker is already there")
+    check(not main.withdraw_button.disabled, "Withdraw enabled while worker on selected farm")
+    await click_at(main.assign_button.get_global_rect().get_center())
+    check(main.town.worker_cell == Vector2i(6, 3), "Repeated assign keeps the single workplace")
+    await click_map(Vector2i(7, 6))
+    check(main.town.buildings.size() == 2, "Second farm built for transfer test")
+    await click_at(main.assign_button.get_global_rect().get_center())
+    check(main.town.worker_cell == Vector2i(7, 6), "Assign to another farm moves the worker")
+    var failed: String = main.town.assign_worker(Vector2i(9, 9))
+    check(failed.contains("没有"), "Assign to a cell without farm is rejected")
+    check(main.town.worker_cell == Vector2i(7, 6), "Failed assign keeps the old job")
+    await click_at(main.withdraw_button.get_global_rect().get_center())
+    check(main.town.worker_cell == TownState.INVALID_CELL, "Withdraw frees the worker")
+    await click_at(main.withdraw_button.get_global_rect().get_center())
+    check(main.town.worker_cell == TownState.INVALID_CELL, "Repeated withdraw is harmless")
+    await click_map(Vector2i(7, 6))
+    await click_at(main.assign_button.get_global_rect().get_center())
+    check(main.town.worker_cell == Vector2i(7, 6), "Worker reassigned before reset")
+    await click_at(main.reset_button.get_global_rect().get_center())
+    check(main.town.worker_cell == TownState.INVALID_CELL, "Reset returns worker to idle")
+    check(main.selection_label.text.contains("空闲"), "Panel shows idle after reset")
+
     if "--capture" in OS.get_cmdline_user_args():
         for cell: Vector2i in [Vector2i(4, 4), Vector2i(5, 4), Vector2i(6, 5), Vector2i(10, 7)]:
             await click_map(cell)
         await click_map(Vector2i(5, 4))
+        await click_at(main.assign_button.get_global_rect().get_center())
         DirAccess.make_dir_recursive_absolute("res://build/verification")
         await RenderingServer.frame_post_draw
         root.get_texture().get_image().save_png("res://build/verification/dual-view-3d.png")

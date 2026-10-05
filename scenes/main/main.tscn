@@ -59,29 +59,46 @@ offset_bottom = 108.0
 
 [node name="Instructions" type="Label" parent="UI" unique_id=408713511]
 offset_left = 595.0
-offset_top = 318.0
+offset_top = 362.0
 offset_right = 930.0
 offset_bottom = 398.0
-text = "蓝色：水泊，不能建造
-绿色：土地，可建造农田
-黄色：农田，点击选中查看
-
-点击空地建造，花费 10 木材。
-选中在切换视图后保持。"
+text = "蓝色：水泊不能建造；绿色：土地可建农田；黄色：农田可选中。
+点空地建造（花费 10 木材）；选中在切换视图后保持。"
 
 [node name="SelectionPanel" type="Label" parent="UI"]
 offset_left = 595.0
 offset_top = 184.0
 offset_right = 930.0
-offset_bottom = 262.0
+offset_bottom = 268.0
 theme_override_font_sizes/font_size = 18
+
+[node name="AssignButton" type="Button" parent="UI"]
+offset_left = 595.0
+offset_top = 276.0
+offset_right = 752.0
+offset_bottom = 312.0
+text = "分配阮小二"
+
+[node name="WithdrawButton" type="Button" parent="UI"]
+offset_left = 760.0
+offset_top = 276.0
+offset_right = 930.0
+offset_bottom = 312.0
+text = "撤回阮小二"
 
 [node name="DeselectButton" type="Button" parent="UI"]
 offset_left = 595.0
-offset_top = 270.0
-offset_right = 810.0
-offset_bottom = 310.0
+offset_top = 320.0
+offset_right = 752.0
+offset_bottom = 356.0
 text = "取消选择"
+
+[node name="ResetButton" type="Button" parent="UI" unique_id=817386219]
+offset_left = 760.0
+offset_top = 320.0
+offset_right = 930.0
+offset_bottom = 356.0
+text = "重置城镇"
 
 [node name="ResetButton" type="Button" parent="UI" unique_id=817386219]
 offset_left = 595.0

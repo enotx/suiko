@@ -19,6 +19,8 @@ var selected_cell: Vector2i = TownState.INVALID_CELL
 @onready var view_button: Button = $UI/ViewButton
 @onready var selection_label: Label = $UI/SelectionPanel
 @onready var deselect_button: Button = $UI/DeselectButton
+@onready var assign_button: Button = $UI/AssignButton
+@onready var withdraw_button: Button = $UI/WithdrawButton
 
 
 func _ready() -> void:
@@ -29,7 +31,9 @@ func _ready() -> void:
 	reset_button.pressed.connect(_reset_town)
 	view_button.pressed.connect(_toggle_view)
 	deselect_button.pressed.connect(_deselect_cell)
-	$UI/Instructions.text = "蓝色：水泊，不能建造\n绿色：土地，可建造农田\n黄色：农田，点击选中查看\n\n点击空地建造，花费 %d 木材。\n选中在切换视图后保持。" % TownState.BUILD_COST
+	assign_button.pressed.connect(_on_assign_pressed)
+	withdraw_button.pressed.connect(_on_withdraw_pressed)
+	$UI/Instructions.text = "蓝色：水泊不能建造；绿色：土地可建农田；黄色：农田可选中。\n点空地建造（花费 %d 木材）；选中在切换视图后保持。" % TownState.BUILD_COST
 	_apply_view()
 	_select_cell(TownState.INVALID_CELL)
 	_refresh_ui("先建一块农田，再切到 2D 查看同一座城镇。")
@@ -67,11 +71,37 @@ func _select_cell(cell: Vector2i) -> void:
 	map_3d.selected_cell = cell
 	map_3d.refresh()
 	if town.buildings.has(cell):
-		selection_label.text = "选中：%s\n位置：(%d, %d)\n状态：已建成，暂无工作者" % [
-			town.building_name(cell), cell.x, cell.y
+		var worker_text: String = TownState.WORKER_NAME if town.worker_is_at(cell) else "无"
+		selection_label.text = "选中：%s\n位置：(%d, %d)\n状态：已建成\n工作者：%s" % [
+			town.building_name(cell), cell.x, cell.y, worker_text
 		]
 	else:
-		selection_label.text = "未选中建筑。\n点击已有农田查看信息。"
+		selection_label.text = "未选中建筑。\n阮小二：%s" % _worker_summary()
+	_update_action_buttons()
+
+
+func _worker_summary() -> String:
+	if town.worker_cell == TownState.INVALID_CELL:
+		return "空闲"
+	return "正在农田 (%d, %d) 工作" % [town.worker_cell.x, town.worker_cell.y]
+
+
+func _update_action_buttons() -> void:
+	var farm_selected: bool = town.buildings.has(selected_cell)
+	assign_button.disabled = not farm_selected or town.worker_is_at(selected_cell)
+	withdraw_button.disabled = town.worker_cell == TownState.INVALID_CELL
+
+
+func _on_assign_pressed() -> void:
+	var message: String = town.assign_worker(selected_cell)
+	_select_cell(selected_cell)
+	_refresh_ui(message)
+
+
+func _on_withdraw_pressed() -> void:
+	var message: String = town.withdraw_worker()
+	_select_cell(selected_cell)
+	_refresh_ui(message)
 
 
 func _deselect_cell() -> void:
