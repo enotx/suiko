@@ -70,7 +70,8 @@ func _create_selection_mark() -> void:
     var long_mesh := BoxMesh.new()
     long_mesh.size = Vector3(0.98, 0.04, 0.08)
     var short_mesh := BoxMesh.new()
-    short_mesh.size = Vector3(0.82, 0.04, 0.08)
+    # 东/西两条边沿 Z 方向延伸；X/Z 尺寸不能与长条写反，否则变成横穿格子的棒。
+    short_mesh.size = Vector3(0.08, 0.04, 0.82)
     var pieces := [
         [long_mesh, Vector3(0.0, 0.03, 0.45)],
         [long_mesh, Vector3(0.0, 0.03, -0.45)],

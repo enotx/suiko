@@ -76,6 +76,16 @@ func _run() -> void:
         "Selection panel shows name and cell")
     check(main.map_2d.selected_cell == Vector2i(5, 5), "2D view shares the selection")
     check(main.map_3d.selection_mark.visible, "3D selection mark visible")
+    # 边框四个部分必须完全落在选中格的一格范围内；此前轴向写反会产生越界横棒。
+    var cell_bounds := AABB(Vector3(5.0, 0.0, 5.0), Vector3.ONE)
+    for piece in main.map_3d.selection_mark.get_children():
+        var mesh_instance := piece as MeshInstance3D
+        var local_aabb: AABB = mesh_instance.mesh.get_aabb()
+        var world_aabb := AABB(
+            local_aabb.position + main.map_3d.selection_mark.position + mesh_instance.position,
+            local_aabb.size
+        )
+        check(cell_bounds.encloses(world_aabb), "Selection border stays inside its cell")
     # 小屋顶面也必须指向该农田，而不是它后面的地块。
     var roof_point: Vector2 = main.map_3d.camera.unproject_position(Vector3(5.73, 0.55, 5.68))
     check(main.map_3d.cell_at_position(roof_point) == Vector2i(5, 5), "Pick visible roof")
