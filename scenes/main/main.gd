@@ -6,6 +6,9 @@ const TownStateScript = preload("res://core/town_state.gd")
 var town: TownState = TownStateScript.new()
 var showing_3d: bool = true
 var selected_cell: Vector2i = TownState.INVALID_CELL
+# 暂停是交互状态：暂停时 Main 不再向规则层传入经过时间（D14 无离线补算）。
+var paused: bool = false
+var _last_shown_grain: int = -1
 
 @onready var map_area: Control = $MapArea
 @onready var map_2d = $MapArea/Map2D
@@ -21,6 +24,7 @@ var selected_cell: Vector2i = TownState.INVALID_CELL
 @onready var deselect_button: Button = $UI/DeselectButton
 @onready var assign_button: Button = $UI/AssignButton
 @onready var withdraw_button: Button = $UI/WithdrawButton
+@onready var pause_button: Button = $UI/PauseButton
 
 
 func _ready() -> void:
@@ -33,7 +37,10 @@ func _ready() -> void:
 	deselect_button.pressed.connect(_deselect_cell)
 	assign_button.pressed.connect(_on_assign_pressed)
 	withdraw_button.pressed.connect(_on_withdraw_pressed)
-	$UI/Instructions.text = "蓝色：水泊不能建造；绿色：土地可建农田；黄色：农田可选中。\n点空地建造（花费 %d 木材）；选中在切换视图后保持。" % TownState.BUILD_COST
+	pause_button.pressed.connect(_toggle_pause)
+	$UI/Instructions.text = "蓝=水泊不可建；绿=土地可建；黄=农田可选中。\n农田自动产粮：无人 %0.0f/秒，有人 %0.0f/秒；可暂停。" % [
+		TownState.GRAIN_RATE_IDLE, TownState.GRAIN_RATE_WORKED
+	]
 	_apply_view()
 	_select_cell(TownState.INVALID_CELL)
 	_refresh_ui("先建一块农田，再切到 2D 查看同一座城镇。")
@@ -70,10 +77,16 @@ func _select_cell(cell: Vector2i) -> void:
 	map_2d.refresh()
 	map_3d.selected_cell = cell
 	map_3d.refresh()
-	if town.buildings.has(cell):
-		var worker_text: String = TownState.WORKER_NAME if town.worker_is_at(cell) else "无"
-		selection_label.text = "选中：%s\n位置：(%d, %d)\n状态：已建成\n工作者：%s" % [
-			town.building_name(cell), cell.x, cell.y, worker_text
+	_refresh_selection_panel()
+	_update_action_buttons()
+
+
+func _refresh_selection_panel() -> void:
+	if town.buildings.has(selected_cell):
+		var worker_text: String = TownState.WORKER_NAME if town.worker_is_at(selected_cell) else "无"
+		selection_label.text = "选中：%s\n位置：(%d, %d)\n工作者：%s\n产出进度：%d%%" % [
+			town.building_name(selected_cell), selected_cell.x, selected_cell.y,
+			worker_text, int(town.farm_progress_ratio(selected_cell) * 100.0)
 		]
 	else:
 		selection_label.text = "未选中建筑。\n阮小二：%s" % _worker_summary()
@@ -104,6 +117,23 @@ func _on_withdraw_pressed() -> void:
 	_refresh_ui(message)
 
 
+func _toggle_pause() -> void:
+	paused = not paused
+	pause_button.text = "继续经营" if paused else "暂停经营"
+	_refresh_ui("经营已暂停；生产停止，进度保留。" if paused else "继续经营；生产恢复。")
+
+
+func _process(delta: float) -> void:
+	# Main 是唯一模拟驱动者：视图切换、重绘都不推进时间；暂停时不传入经过时间。
+	if paused:
+		return
+	town.advance_time(delta)
+	if town.grain != _last_shown_grain:
+		_last_shown_grain = town.grain
+		_update_resources()
+		_refresh_selection_panel()
+
+
 func _deselect_cell() -> void:
 	_select_cell(TownState.INVALID_CELL)
 	_refresh_ui("已取消选择；建筑和木材保持不变。")
@@ -132,8 +162,13 @@ func _reset_town() -> void:
 	_refresh_ui("已重置城镇；两个视图同步恢复。")
 
 
-func _refresh_ui(message: String) -> void:
-	resources_label.text = "木材：%d    农田：%d    建造花费：%d 木材" % [
-		town.wood, town.buildings.size(), TownState.BUILD_COST
+func _update_resources() -> void:
+	resources_label.text = "木材：%d    粮食：%d    农田：%d    建造花费：%d 木材" % [
+		town.wood, town.grain, town.buildings.size(), TownState.BUILD_COST
 	]
+
+
+func _refresh_ui(message: String) -> void:
+	_last_shown_grain = town.grain
+	_update_resources()
 	status_label.text = message

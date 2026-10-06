@@ -62,8 +62,8 @@ offset_left = 595.0
 offset_top = 362.0
 offset_right = 930.0
 offset_bottom = 398.0
-text = "蓝色：水泊不能建造；绿色：土地可建农田；黄色：农田可选中。
-点空地建造（花费 10 木材）；选中在切换视图后保持。"
+text = "蓝=水泊不可建；绿=土地可建；黄=农田可选中。
+农田自动产粮：无人 +1/秒，有人 +2/秒；可暂停。"
 
 [node name="SelectionPanel" type="Label" parent="UI"]
 offset_left = 595.0
@@ -124,6 +124,13 @@ theme_override_font_sizes/font_size = 21
 [node name="ViewButton" type="Button" parent="UI" unique_id=441771894]
 offset_left = 595.0
 offset_top = 400.0
-offset_right = 810.0
+offset_right = 752.0
 offset_bottom = 444.0
 text = "切换到 2D"
+
+[node name="PauseButton" type="Button" parent="UI"]
+offset_left = 760.0
+offset_top = 400.0
+offset_right = 930.0
+offset_bottom = 444.0
+text = "暂停经营"

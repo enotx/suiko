@@ -176,6 +176,44 @@ func _run() -> void:
     check(main.town.worker_cell == TownState.INVALID_CELL, "Reset returns worker to idle")
     check(main.selection_label.text.contains("空闲"), "Panel shows idle after reset")
 
+    # P04：实时产粮数值——用独立规则实例验证，避免运行帧时序影响断言。
+    var sim := TownState.new()
+    sim.try_build(Vector2i(3, 3))
+    sim.advance_time(0.5)
+    check(sim.grain == 0 and is_equal_approx(sim.farm_progress_ratio(Vector2i(3, 3)), 0.5),
+        "Half a second yields half progress, no grain yet")
+    sim.advance_time(0.5)
+    check(sim.grain == 1, "Idle farm yields one grain per second")
+    sim.assign_worker(Vector2i(3, 3))
+    sim.advance_time(1.0)
+    check(sim.grain == 3, "Worked farm yields two grains per second")
+    # 相同总时间在不同时间步划分下产量一致（取值远离整数边界）。
+    var stepped := TownState.new()
+    stepped.try_build(Vector2i(3, 3))
+    stepped.assign_worker(Vector2i(3, 3))
+    for i in range(10):
+        stepped.advance_time(0.31)
+    var bulk := TownState.new()
+    bulk.try_build(Vector2i(3, 3))
+    bulk.assign_worker(Vector2i(3, 3))
+    bulk.advance_time(3.1)
+    check(stepped.grain == 6 and bulk.grain == 6, "Same total time must give same yield")
+    bulk.withdraw_worker()
+    bulk.advance_time(1.0)
+    check(bulk.grain == 7, "After withdraw the farm yields one per second")
+    bulk.advance_time(10.0)
+    check(bulk.grain == 17, "Long timestep accumulates multiple cycles without loss")
+    sim.reset()
+    check(sim.grain == 0 and sim.farm_progress.is_empty(), "Reset clears grain and progress")
+
+    # 暂停按钮与粮食 HUD。
+    check(main.resources_label.text.contains("粮食"), "HUD shows grain")
+    check(not main.paused and main.pause_button.text == "暂停经营", "Starts unpaused")
+    await click_at(main.pause_button.get_global_rect().get_center())
+    check(main.paused and main.pause_button.text == "继续经营", "Pause toggles state and label")
+    await click_at(main.pause_button.get_global_rect().get_center())
+    check(not main.paused and main.pause_button.text == "暂停经营", "Resume restores production")
+
     if "--capture" in OS.get_cmdline_user_args():
         for cell: Vector2i in [Vector2i(4, 4), Vector2i(5, 4), Vector2i(6, 5), Vector2i(10, 7)]:
             await click_map(cell)
