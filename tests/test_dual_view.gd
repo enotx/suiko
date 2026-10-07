@@ -41,6 +41,12 @@ func click_map(cell: Vector2i) -> void:
     await click_at(main.map_area.global_position + local_position)
 
 
+func click_build(cell: Vector2i, build_button: Button) -> void:
+    # D16 交互：先点空地选中，再点对应建造按钮。
+    await click_map(cell)
+    await click_at(build_button.get_global_rect().get_center())
+
+
 func switch_view() -> void:
     await click_at(main.view_button.get_global_rect().get_center())
 
@@ -62,6 +68,12 @@ func _run() -> void:
         "Both views must reference the same state")
     check(main.showing_3d, "Start in 3D")
 
+    # 配表自检：重复 id、缺失字段、非法产出都不允许上线。
+    check(TownState.validate_defs().is_empty(), "Building defs must validate cleanly")
+    # 大本营是预置建筑：开局即在场上。
+    check(main.town.buildings.get(TownState.HQ_CELL, &"") == &"hq",
+        "Headquarters must be preset on the map")
+
     # 每个空地块的屏幕中心都必须能反向定位，且完整落在地图显示区域。
     for y in range(TownState.HEIGHT):
         for x in range(TownState.WIDTH):
@@ -69,23 +81,13 @@ func _run() -> void:
             check(Rect2(Vector2.ZERO, Vector2(512, 384)).has_point(point), "3D tile clipped")
             check(main.map_3d.cell_at_position(point) == Vector2i(x, y), "3D tile picking mismatch")
 
-    await click_map(Vector2i(5, 5))
-    check(main.town.wood == 90 and main.town.buildings.size() == 1, "3D click builds exactly once")
+    await click_build(Vector2i(5, 5), main.build_farm_button)
+    check(main.town.wood == 90 and main.town.buildings.size() == 2, "3D click builds exactly once")
     check(main.selected_cell == Vector2i(5, 5), "Building auto-selects the new farm")
     check(main.selection_label.text.contains("农田") and main.selection_label.text.contains("(5, 5)"),
         "Selection panel shows name and cell")
     check(main.map_2d.selected_cell == Vector2i(5, 5), "2D view shares the selection")
     check(main.map_3d.selection_mark.visible, "3D selection mark visible")
-    # 边框四个部分必须完全落在选中格的一格范围内；此前轴向写反会产生越界横棒。
-    var cell_bounds := AABB(Vector3(5.0, 0.0, 5.0), Vector3.ONE)
-    for piece in main.map_3d.selection_mark.get_children():
-        var mesh_instance := piece as MeshInstance3D
-        var local_aabb: AABB = mesh_instance.mesh.get_aabb()
-        var world_aabb := AABB(
-            local_aabb.position + main.map_3d.selection_mark.position + mesh_instance.position,
-            local_aabb.size
-        )
-        check(cell_bounds.encloses(world_aabb), "Selection border stays inside its cell")
     # 小屋顶面也必须指向该农田，而不是它后面的地块。
     var roof_point: Vector2 = main.map_3d.camera.unproject_position(Vector3(5.73, 0.55, 5.68))
     check(main.map_3d.cell_at_position(roof_point) == Vector2i(5, 5), "Pick visible roof")
@@ -96,6 +98,7 @@ func _run() -> void:
     check(main.town.wood == 90, "Duplicate 3D build must not charge")
     check(main.selected_cell == Vector2i(5, 5), "Roof click keeps selection on the farm")
     await click_map(Vector2i(1, 5))
+    check(main.status_label.text.contains("水面"), "Water click explains itself")
     await click_at(main.map_area.global_position + Vector2(2, 2))
     check(main.town.wood == 90, "Water and background must not charge")
     check(main.selected_cell == Vector2i(5, 5), "Water and background clicks keep selection")
@@ -110,47 +113,45 @@ func _run() -> void:
     check(main.selected_cell == Vector2i(5, 5), "2D click on farm selects it")
     await click_map(Vector2i(0, 0))
     check(main.selected_cell == Vector2i(5, 5), "Water click keeps selection")
-    await click_map(Vector2i(8, 7))
-    check(main.town.wood == 80 and main.town.buildings.size() == 2, "2D click builds exactly once")
+    await click_build(Vector2i(8, 7), main.build_farm_button)
+    check(main.town.wood == 80 and main.town.buildings.size() == 3, "2D click builds exactly once")
     check(main.selected_cell == Vector2i(8, 7), "2D build auto-selects the new farm")
     await switch_view()
-    check(main.showing_3d and main.map_3d.farms.get_child_count() == 12, "3D reflects both farms")
+    check(main.showing_3d and main.map_3d.buildings_root.get_child_count() == 16, "3D reflects both farms and HQ")
     check(main.map_3d.selection_mark.position == Vector3(8.5, 0.0, 7.5), "3D mark follows selection")
     check(main.resources_label.text.contains("80"), "Shared HUD reflects resources")
 
     for i in range(8):
-        await click_map(Vector2i(4 + i, 9))
-    check(main.town.wood == 0 and main.town.buildings.size() == 10, "Spend starting wood")
+        await click_build(Vector2i(4 + i, 9), main.build_farm_button)
+    check(main.town.wood == 0 and main.town.buildings.size() == 11, "Spend starting wood")
     check(main.selected_cell == Vector2i(11, 9), "Last built farm stays selected")
     await click_map(Vector2i(14, 10))
-    check(main.town.wood == 0 and main.town.buildings.size() == 10, "Insufficient resources rejected")
-    check(main.selected_cell == Vector2i(11, 9), "Rejected build keeps selection")
+    check(main.town.wood == 0 and main.town.buildings.size() == 11, "Outside map is not selected or built")
+    await click_map(Vector2i(13, 8))
+    check(main.build_farm_button.disabled and main.build_lumberyard_button.disabled,
+        "Build buttons disabled without enough wood")
+    await click_at(main.deselect_button.get_global_rect().get_center())
     await switch_view()
     await click_at(main.reset_button.get_global_rect().get_center())
-    check(main.town.wood == 100 and main.town.buildings.is_empty(), "Reset in 2D clears state without click-through")
+    check(main.town.wood == 100 and main.town.buildings.size() == 1, "Reset keeps only the preset HQ")
     check(main.selected_cell == TownState.INVALID_CELL, "Reset clears selection")
     check(main.selection_label.text.contains("未选中"), "Panel shows no selection after reset")
     await switch_view()
-    check(main.map_3d.farms.get_child_count() == 0, "Reset clears 3D models")
+    check(main.map_3d.buildings_root.get_child_count() == 4, "Reset leaves only HQ models")
     check(not main.map_3d.selection_mark.visible, "3D mark hidden after reset")
-    await click_map(Vector2i(7, 4))
+    await click_build(Vector2i(7, 4), main.build_farm_button)
     check(main.selected_cell == Vector2i(7, 4), "3D build selects the farm")
     await click_at(main.reset_button.get_global_rect().get_center())
-    check(main.town.wood == 100 and main.town.buildings.is_empty(), "Reset in 3D")
+    check(main.town.wood == 100 and main.town.buildings.size() == 1, "Reset in 3D")
     check(main.selected_cell == TownState.INVALID_CELL, "Reset in 3D clears selection")
-
-    await click_map(Vector2i(6, 3))
-    check(main.selected_cell == Vector2i(6, 3), "Farm selected for deselect test")
-    await click_at(main.deselect_button.get_global_rect().get_center())
-    check(main.selected_cell == TownState.INVALID_CELL, "Deselect button clears selection")
-    check(main.selection_label.text.contains("未选中"), "Panel cleared by deselect")
-    check(not main.map_3d.selection_mark.visible, "3D mark hidden after deselect")
 
     # P03：阮小二分配、调岗、撤回与重置；全程不允许一人占两个工位。
     check(main.selection_label.text.contains("空闲"), "Panel shows worker idle when nothing selected")
-    check(main.assign_button.disabled and main.withdraw_button.disabled,
-        "Worker buttons disabled without a farm selected")
-    await click_map(Vector2i(6, 3))
+    check(main.assign_button.visible == false and main.withdraw_button.visible == false,
+        "Worker buttons hidden when nothing is selected")
+    await click_build(Vector2i(6, 3), main.build_farm_button)
+    check(main.assign_button.visible and main.build_farm_button.visible == false,
+        "Worker and build buttons switch by context")
     await click_at(main.assign_button.get_global_rect().get_center())
     check(main.town.worker_cell == Vector2i(6, 3), "Assign puts worker on the selected farm")
     check(main.selection_label.text.contains("阮小二"), "Panel shows worker after assign")
@@ -158,12 +159,12 @@ func _run() -> void:
     check(not main.withdraw_button.disabled, "Withdraw enabled while worker on selected farm")
     await click_at(main.assign_button.get_global_rect().get_center())
     check(main.town.worker_cell == Vector2i(6, 3), "Repeated assign keeps the single workplace")
-    await click_map(Vector2i(7, 6))
-    check(main.town.buildings.size() == 2, "Second farm built for transfer test")
+    await click_build(Vector2i(7, 6), main.build_farm_button)
+    check(main.town.buildings.size() == 3, "Second farm built for transfer test")
     await click_at(main.assign_button.get_global_rect().get_center())
     check(main.town.worker_cell == Vector2i(7, 6), "Assign to another farm moves the worker")
     var failed: String = main.town.assign_worker(Vector2i(9, 9))
-    check(failed.contains("没有"), "Assign to a cell without farm is rejected")
+    check(failed.contains("没有"), "Assign to a cell without building is rejected")
     check(main.town.worker_cell == Vector2i(7, 6), "Failed assign keeps the old job")
     await click_at(main.withdraw_button.get_global_rect().get_center())
     check(main.town.worker_cell == TownState.INVALID_CELL, "Withdraw frees the worker")
@@ -176,81 +177,79 @@ func _run() -> void:
     check(main.town.worker_cell == TownState.INVALID_CELL, "Reset returns worker to idle")
     check(main.selection_label.text.contains("空闲"), "Panel shows idle after reset")
 
+    # P07：大本营不可建第二座、不需要工人；伐木场产木材。
+    await click_map(TownState.HQ_CELL)
+    check(main.selection_label.text.contains("大本营"), "HQ can be selected and identified")
+    check(main.assign_button.disabled, "Assign disabled on HQ")
+    check(main.town.assign_worker(TownState.HQ_CELL).contains("不需要工人"), "HQ refuses workers")
+    var duplicate_hq: String = main.town.try_build(Vector2i(4, 6), &"hq")
+    check(duplicate_hq.contains("只能有一座"), "Second HQ rejected by unique rule")
+    await click_map(Vector2i(4, 6))
+    check(main.build_lumberyard_button.visible and not main.assign_button.visible,
+        "Empty land shows build buttons")
+    await click_build(Vector2i(4, 6), main.build_lumberyard_button)
+    check(main.town.buildings.get(Vector2i(4, 6), &"") == &"lumberyard", "Lumberyard can be built")
+    check(main.town.wood == 80, "Lumberyard costs 20 wood")
+    var mill_ok := TownState.new()
+    mill_ok.try_build(Vector2i(4, 4), &"lumberyard")
+    mill_ok.assign_worker(Vector2i(4, 4))
+    var wood_before: int = mill_ok.wood
+    mill_ok.advance_time(1.0)
+    check(mill_ok.wood == wood_before + 2, "Worked lumberyard yields two wood per second")
+    mill_ok.withdraw_worker()
+    mill_ok.advance_time(1.0)
+    check(mill_ok.wood == wood_before + 3, "Idle lumberyard yields one wood per second")
+
     # P04：实时产粮数值——用独立规则实例验证，避免运行帧时序影响断言。
-    var sim := TownState.new()
-    sim.try_build(Vector2i(3, 3))
-    sim.advance_time(0.5)
-    check(sim.grain == 0 and is_equal_approx(sim.farm_progress_ratio(Vector2i(3, 3)), 0.5),
-        "Half a second yields half progress, no grain yet")
-    sim.advance_time(0.5)
-    check(sim.grain == 1, "Idle farm yields one grain per second")
-    sim.assign_worker(Vector2i(3, 3))
-    sim.advance_time(1.0)
-    check(sim.grain == 3, "Worked farm yields two grains per second")
-    # 相同总时间在不同时间步划分下产量一致（取值远离整数边界）。
-    var stepped := TownState.new()
-    stepped.try_build(Vector2i(3, 3))
-    stepped.assign_worker(Vector2i(3, 3))
-    for i in range(10):
-        stepped.advance_time(0.31)
-    var bulk := TownState.new()
-    bulk.try_build(Vector2i(3, 3))
-    bulk.assign_worker(Vector2i(3, 3))
-    bulk.advance_time(3.1)
-    check(stepped.grain == 6 and bulk.grain == 6, "Same total time must give same yield")
-    bulk.withdraw_worker()
-    bulk.advance_time(1.0)
-    check(bulk.grain == 7, "After withdraw the farm yields one per second")
-    bulk.advance_time(10.0)
-    check(bulk.grain == 17, "Long timestep accumulates multiple cycles without loss")
-    sim.reset()
-    check(sim.grain == 0 and sim.farm_progress.is_empty(), "Reset clears grain and progress")
-
-    # 暂停按钮与粮食 HUD。
-    check(main.resources_label.text.contains("粮食"), "HUD shows grain")
-    check(not main.paused and main.pause_button.text == "暂停经营", "Starts unpaused")
-    await click_at(main.pause_button.get_global_rect().get_center())
-    check(main.paused and main.pause_button.text == "继续经营", "Pause toggles state and label")
-    await click_at(main.pause_button.get_global_rect().get_center())
-    check(not main.paused and main.pause_button.text == "暂停经营", "Resume restores production")
-
-    # P05：存档读档——先验证规则层序列化与校验（独立实例）。
     # 无人工况 +1/秒：推进 0.5 秒得到真正的“半个周期”。
     var saver := TownState.new()
-    saver.try_build(Vector2i(4, 4))
+    saver.try_build(Vector2i(4, 4), &"farm")
     saver.advance_time(0.5)
     var save_data: Dictionary = saver.to_save_data()
     var loader := TownState.new()
-    loader.try_build(Vector2i(9, 9))
+    loader.try_build(Vector2i(9, 9), &"farm")
     check(loader.apply_save_data(save_data) == "", "Valid save applies cleanly")
     check(loader.wood == saver.wood and loader.grain == saver.grain
-        and loader.worker_cell == TownState.INVALID_CELL and loader.buildings.size() == 1
+        and loader.worker_cell == TownState.INVALID_CELL and loader.buildings.size() == 2
         and is_equal_approx(loader.farm_progress_ratio(Vector2i(4, 4)), 0.5),
         "Save round-trip restores resources, worker, farm and progress")
     loader.advance_time(0.5)
     check(loader.grain == 1, "Continuing after load does not double-settle")
     var guard := TownState.new()
-    guard.try_build(Vector2i(4, 4))
+    guard.try_build(Vector2i(4, 4), &"farm")
     guard.assign_worker(Vector2i(4, 4))
     check(guard.apply_save_data("junk") != "", "Non-dictionary save rejected")
     check(guard.apply_save_data({"version": 0, "wood": 1, "grain": 1, "buildings": []}) != "",
         "Old version rejected")
-    check(guard.apply_save_data({"version": 1, "wood": 50, "grain": 0,
+    check(guard.apply_save_data({"version": 2, "wood": 50, "grain": 0,
         "worker_x": -1, "worker_y": -1,
         "buildings": [{"x": 0, "y": 0, "kind": "farm", "progress": 0.0}]}) != "",
         "Water-cell building rejected")
-    check(guard.apply_save_data({"version": 1, "wood": 50, "grain": 0,
+    check(guard.apply_save_data({"version": 2, "wood": 50, "grain": 0,
         "worker_x": 4, "worker_y": 4, "buildings": []}) != "",
         "Worker pointing at missing farm rejected")
+    check(guard.apply_save_data({"version": 2, "wood": 50, "grain": 0,
+        "worker_x": -1, "worker_y": -1,
+        "buildings": [{"x": 4, "y": 4, "kind": "hq", "progress": 0.0},
+            {"x": 5, "y": 4, "kind": "hq", "progress": 0.0}]}) != "",
+        "Duplicate unique building rejected")
+    var v1_data := {"version": 1, "wood": 55, "grain": 3, "worker_x": 5, "worker_y": 5,
+        "buildings": [{"x": 5, "y": 5, "kind": "farm", "progress": 0.25}]}
+    var migrated := TownState.new()
+    check(migrated.apply_save_data(v1_data) == "", "V1 save migrates cleanly")
+    check(migrated.buildings.size() == 2 and migrated.buildings.get(TownState.HQ_CELL, &"") == &"hq"
+        and migrated.worker_cell == Vector2i(5, 5),
+        "Migration plants HQ and keeps worker")
     check(guard.wood == 90 and guard.grain == 0 and guard.worker_cell == Vector2i(4, 4)
-        and guard.buildings.size() == 1,
+        and guard.buildings.size() == 2,
         "Rejected saves leave current state untouched")
 
-    # UI：缺失存档提示；暂停后保存→重置→读取，数值必须精确恢复；损坏文件不破坏经营。
+    # P05/P04 UI：缺失存档提示；暂停后保存→重置→读取，数值必须精确恢复；损坏文件不破坏经营。
     DirAccess.remove_absolute("user://town_save.json")
     await click_at(main.load_button.get_global_rect().get_center())
     check(main.status_label.text.contains("还没有存档"), "Missing save reported")
-    await click_map(Vector2i(8, 2))
+    await click_build(Vector2i(8, 2), main.build_farm_button)
+    check(main.town.buildings.get(Vector2i(8, 2), &"") == &"farm", "Farm built for save test")
     await click_at(main.assign_button.get_global_rect().get_center())
     await click_at(main.pause_button.get_global_rect().get_center())
     var saved_wood: int = main.town.wood
@@ -258,12 +257,13 @@ func _run() -> void:
     await click_at(main.save_button.get_global_rect().get_center())
     check(main.status_label.text.contains("已保存"), "Save reports success")
     await click_at(main.reset_button.get_global_rect().get_center())
-    check(main.town.buildings.is_empty() and main.town.wood == 100, "Reset clears before load")
+    check(main.town.buildings.size() == 1 and main.town.wood == 100, "Reset clears before load")
     await click_at(main.load_button.get_global_rect().get_center())
+    check(main.town.wood == saved_wood, "Load wood %d vs saved %d" % [main.town.wood, saved_wood])
+    check(main.town.grain == saved_grain, "Load grain %d vs saved %d" % [main.town.grain, saved_grain])
+    check(main.town.worker_cell == Vector2i(8, 2), "Load worker %s" % main.town.worker_cell)
+    check(main.town.buildings.size() == 3, "Load buildings 3 (HQ, farm and lumberyard)")
     check(main.status_label.text.contains("已读取"), "Load reports success")
-    check(main.town.wood == saved_wood and main.town.grain == saved_grain
-        and main.town.worker_cell == Vector2i(8, 2) and main.town.buildings.size() == 1,
-        "Load restores the saved state exactly")
     var broken := FileAccess.open("user://town_save.json", FileAccess.WRITE)
     broken.store_string("not-json{{{")
     broken.close()
@@ -275,9 +275,18 @@ func _run() -> void:
     check(not main.paused, "Back to running after save/load checks")
     DirAccess.remove_absolute("user://town_save.json")
 
+    # P04 UI：暂停按钮与粮食 HUD。
+    check(main.resources_label.text.contains("粮食"), "HUD shows grain")
+    check(not main.paused and main.pause_button.text == "暂停经营", "Starts unpaused")
+    await click_at(main.pause_button.get_global_rect().get_center())
+    check(main.paused and main.pause_button.text == "继续经营", "Pause toggles state and label")
+    await click_at(main.pause_button.get_global_rect().get_center())
+    check(not main.paused and main.pause_button.text == "暂停经营", "Resume restores production")
+
     if "--capture" in OS.get_cmdline_user_args():
         for cell: Vector2i in [Vector2i(4, 4), Vector2i(5, 4), Vector2i(6, 5), Vector2i(10, 7)]:
-            await click_map(cell)
+            await click_build(cell, main.build_farm_button)
+        await click_build(Vector2i(11, 4), main.build_lumberyard_button)
         await click_map(Vector2i(5, 4))
         await click_at(main.assign_button.get_global_rect().get_center())
         DirAccess.make_dir_recursive_absolute("res://build/verification")

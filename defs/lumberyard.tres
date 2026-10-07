@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="BuildingDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://core/building_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"lumberyard"
+display_name = "伐木场"
+wood_cost = 20
+produces = &"wood"
+base_rate = 1.0
+worked_rate = 2.0
+worker_assignable = true
+unique = false

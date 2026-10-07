@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="BuildingDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://core/building_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"farm"
+display_name = "农田"
+wood_cost = 10
+produces = &"grain"
+base_rate = 1.0
+worked_rate = 2.0
+worker_assignable = true
+unique = false

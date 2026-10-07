@@ -86,6 +86,20 @@ offset_right = 930.0
 offset_bottom = 312.0
 text = "撤回阮小二"
 
+[node name="BuildFarmButton" type="Button" parent="UI"]
+offset_left = 595.0
+offset_top = 276.0
+offset_right = 752.0
+offset_bottom = 312.0
+text = "建农田（10木）"
+
+[node name="BuildLumberyardButton" type="Button" parent="UI"]
+offset_left = 760.0
+offset_top = 276.0
+offset_right = 930.0
+offset_bottom = 312.0
+text = "建伐木场（20木）"
+
 [node name="DeselectButton" type="Button" parent="UI"]
 offset_left = 595.0
 offset_top = 320.0

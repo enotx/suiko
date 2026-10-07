@@ -10,7 +10,7 @@ var selected_cell: Vector2i = TownState.INVALID_CELL
 var selection_mark: Node3D
 
 @onready var terrain: Node3D = $Terrain
-@onready var farms: Node3D = $Farms
+@onready var buildings_root: Node3D = $Buildings
 @onready var camera: Camera3D = $Camera3D
 
 
@@ -98,24 +98,60 @@ func _update_selection_mark() -> void:
 
 
 func refresh() -> void:
-    # 原型最多十座农田，先采用简单重建，避免引入同步缓存。
-    for child in farms.get_children():
-        farms.remove_child(child)
+    # 原型建筑数量很少，先采用简单重建，避免引入同步缓存。
+    for child in buildings_root.get_children():
+        buildings_root.remove_child(child)
         child.queue_free()
     pick_boxes.resize(terrain_pick_count)
+    for cell: Vector2i in town.buildings:
+        match town.buildings[cell]:
+            &"farm":
+                _build_farm(cell)
+            &"lumberyard":
+                _build_lumberyard(cell)
+            &"hq":
+                _build_hq(cell)
+    _update_selection_mark()
+
+
+func _build_farm(cell: Vector2i) -> void:
+    var origin := Vector3(cell.x, 0, cell.y)
     var earth := _material(Color("b99258"))
     var crop := _material(Color("d9bb66"))
     var wall := _material(Color("e4d2ac"))
     var roof := _material(Color("985947"))
-    for cell: Vector2i in town.buildings:
-        var origin := Vector3(cell.x, 0, cell.y)
-        _box(farms, origin + Vector3(0.5, 0.055, 0.5), Vector3(0.8, 0.11, 0.8), earth, cell)
-        for row in range(3):
-            _box(farms, origin + Vector3(0.39, 0.15, 0.28 + row * 0.22),
-                Vector3(0.42, 0.08, 0.065), crop, cell)
-        _box(farms, origin + Vector3(0.73, 0.29, 0.68), Vector3(0.24, 0.36, 0.28), wall, cell)
-        _box(farms, origin + Vector3(0.73, 0.51, 0.68), Vector3(0.32, 0.08, 0.36), roof, cell)
-    _update_selection_mark()
+    _box(buildings_root, origin + Vector3(0.5, 0.055, 0.5), Vector3(0.8, 0.11, 0.8), earth, cell)
+    for row in range(3):
+        _box(buildings_root, origin + Vector3(0.39, 0.15, 0.28 + row * 0.22),
+            Vector3(0.42, 0.08, 0.065), crop, cell)
+    _box(buildings_root, origin + Vector3(0.73, 0.29, 0.68), Vector3(0.24, 0.36, 0.28), wall, cell)
+    _box(buildings_root, origin + Vector3(0.73, 0.51, 0.68), Vector3(0.32, 0.08, 0.36), roof, cell)
+
+
+func _build_lumberyard(cell: Vector2i) -> void:
+    var origin := Vector3(cell.x, 0, cell.y)
+    var log_mat := _material(Color("a97e42"))
+    var log_dark := _material(Color("7c5a2c"))
+    var post := _material(Color("5f4520"))
+    # 底层两根横木 + 上层一根，旁边立两根柱子示意伐木场料堆。
+    _box(buildings_root, origin + Vector3(0.38, 0.07, 0.35), Vector3(0.6, 0.14, 0.22), log_mat, cell)
+    _box(buildings_root, origin + Vector3(0.38, 0.07, 0.65), Vector3(0.6, 0.14, 0.22), log_dark, cell)
+    _box(buildings_root, origin + Vector3(0.38, 0.21, 0.5), Vector3(0.6, 0.14, 0.22), log_mat, cell)
+    _box(buildings_root, origin + Vector3(0.78, 0.16, 0.28), Vector3(0.08, 0.32, 0.08), post, cell)
+    _box(buildings_root, origin + Vector3(0.78, 0.16, 0.72), Vector3(0.08, 0.32, 0.08), post, cell)
+
+
+func _build_hq(cell: Vector2i) -> void:
+    # 主体压在 0.6 高以内：斜俯视相机下不遮挡相邻格心的射线，192 格拾取检查才稳定。
+    var origin := Vector3(cell.x, 0, cell.y)
+    var stone := _material(Color("77808c"))
+    var stone_dark := _material(Color("525a64"))
+    var roof := _material(Color("8c4a3c"))
+    var flag := _material(Color("ffd75e"))
+    _box(buildings_root, origin + Vector3(0.5, 0.15, 0.5), Vector3(0.9, 0.3, 0.9), stone, cell)
+    _box(buildings_root, origin + Vector3(0.5, 0.425, 0.5), Vector3(0.65, 0.25, 0.65), stone_dark, cell)
+    _box(buildings_root, origin + Vector3(0.5, 0.58, 0.5), Vector3(0.75, 0.06, 0.75), roof, cell)
+    _box(buildings_root, origin + Vector3(0.5, 0.655, 0.5), Vector3(0.05, 0.09, 0.05), flag, cell)
 
 
 func cell_at_position(local_position: Vector2) -> Vector2i:

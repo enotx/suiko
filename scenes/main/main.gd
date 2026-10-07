@@ -10,6 +10,7 @@ var selected_cell: Vector2i = TownState.INVALID_CELL
 # 暂停是交互状态：暂停时 Main 不再向规则层传入经过时间（D14 无离线补算）。
 var paused: bool = false
 var _last_shown_grain: int = -1
+var _last_shown_wood: int = -1
 
 @onready var map_area: Control = $MapArea
 @onready var map_2d = $MapArea/Map2D
@@ -28,6 +29,8 @@ var _last_shown_grain: int = -1
 @onready var pause_button: Button = $UI/PauseButton
 @onready var save_button: Button = $UI/SaveButton
 @onready var load_button: Button = $UI/LoadButton
+@onready var build_farm_button: Button = $UI/BuildFarmButton
+@onready var build_lumberyard_button: Button = $UI/BuildLumberyardButton
 
 
 func _ready() -> void:
@@ -43,12 +46,16 @@ func _ready() -> void:
 	pause_button.pressed.connect(_toggle_pause)
 	save_button.pressed.connect(_save_town)
 	load_button.pressed.connect(_load_town)
-	$UI/Instructions.text = "蓝=水泊不可建；绿=土地可建；黄=农田可选中。\n农田自动产粮：无人 %0.0f/秒，有人 %0.0f/秒；可暂停。" % [
-		TownState.GRAIN_RATE_IDLE, TownState.GRAIN_RATE_WORKED
-	]
+	build_farm_button.pressed.connect(_on_build_pressed.bind(&"farm"))
+	build_lumberyard_button.pressed.connect(_on_build_pressed.bind(&"lumberyard"))
+	var farm_def: BuildingDef = TownState.building_def(&"farm")
+	var lumber_def: BuildingDef = TownState.building_def(&"lumberyard")
+	build_farm_button.text = "建%s（%d木）" % [farm_def.display_name, farm_def.wood_cost]
+	build_lumberyard_button.text = "建%s（%d木）" % [lumber_def.display_name, lumber_def.wood_cost]
+	$UI/Instructions.text = "蓝=水泊；绿=空地；点空地选中后可建造。\n选中建筑可分配阮小二；产出速率见各建筑按钮。"
 	_apply_view()
 	_select_cell(TownState.INVALID_CELL)
-	_refresh_ui("先建一块农田，再切到 2D 查看同一座城镇。")
+	_refresh_ui("先选一块空地，建一座伐木场，木材就不再是死水。")
 
 
 func _on_map_input(event: InputEvent) -> void:
@@ -63,12 +70,14 @@ func _on_map_input(event: InputEvent) -> void:
 			if town.buildings.has(cell):
 				message = "已选中 %s (%d, %d)。" % [town.building_name(cell), cell.x, cell.y]
 				_select_cell(cell)
+			elif not town.is_inside(cell):
+				message = "请在地图范围内操作。"
+			elif town.is_water(cell):
+				message = "水面不能建造。"
 			else:
-				message = town.try_build(cell)
-				if town.buildings.has(cell):
-					# 临时交互约定：建造成功后自动选中新农田，方便立即查看信息。
-					message += " 已自动选中。"
-					_select_cell(cell)
+				# D16：点空地只是选中，建造由右侧按钮决定建筑种类。
+				message = "已选择空地 (%d, %d)；在右侧选择要建造的建筑。" % [cell.x, cell.y]
+				_select_cell(cell)
 			map_2d.refresh()
 			map_3d.refresh()
 			_refresh_ui(message)
@@ -88,26 +97,48 @@ func _select_cell(cell: Vector2i) -> void:
 
 func _refresh_selection_panel() -> void:
 	if town.buildings.has(selected_cell):
+		var def: BuildingDef = TownState.building_def(town.buildings[selected_cell])
 		var worker_text: String = TownState.WORKER_NAME if town.worker_is_at(selected_cell) else "无"
-		selection_label.text = "选中：%s\n位置：(%d, %d)\n工作者：%s\n产出进度：%d%%" % [
-			town.building_name(selected_cell), selected_cell.x, selected_cell.y,
-			worker_text, int(town.farm_progress_ratio(selected_cell) * 100.0)
+		var progress_text: String = "产出进度：%d%%" % int(town.farm_progress_ratio(selected_cell) * 100.0) \
+			if def.produces != &"" else "不产出"
+		selection_label.text = "选中：%s\n位置：(%d, %d)\n工作者：%s\n%s" % [
+			def.display_name, selected_cell.x, selected_cell.y, worker_text, progress_text
+		]
+	elif _is_buildable_cell(selected_cell):
+		selection_label.text = "空地 (%d, %d)\n阮小二：%s\n在下方选择要建造的建筑。" % [
+			selected_cell.x, selected_cell.y, _worker_summary()
 		]
 	else:
 		selection_label.text = "未选中建筑。\n阮小二：%s" % _worker_summary()
 	_update_action_buttons()
 
 
+func _is_buildable_cell(cell: Vector2i) -> bool:
+	return town.is_inside(cell) and not town.is_water(cell) and not town.buildings.has(cell)
+
+
 func _worker_summary() -> String:
 	if town.worker_cell == TownState.INVALID_CELL:
 		return "空闲"
-	return "正在农田 (%d, %d) 工作" % [town.worker_cell.x, town.worker_cell.y]
+	var def: BuildingDef = TownState.building_def(town.buildings.get(town.worker_cell, &""))
+	var place: String = def.display_name if def != null else "外出"
+	return "正在%s (%d, %d) 工作" % [place, town.worker_cell.x, town.worker_cell.y]
 
 
 func _update_action_buttons() -> void:
-	var farm_selected: bool = town.buildings.has(selected_cell)
-	assign_button.disabled = not farm_selected or town.worker_is_at(selected_cell)
+	var def: BuildingDef = TownState.building_def(town.buildings.get(selected_cell, &""))
+	var building_selected: bool = def != null
+	var assignable: bool = building_selected and def.worker_assignable
+	assign_button.visible = building_selected
+	withdraw_button.visible = building_selected
+	assign_button.disabled = not assignable or town.worker_is_at(selected_cell)
 	withdraw_button.disabled = town.worker_cell == TownState.INVALID_CELL
+	build_farm_button.visible = not building_selected
+	build_lumberyard_button.visible = not building_selected
+	build_farm_button.disabled = not _is_buildable_cell(selected_cell) \
+		or town.wood < TownState.building_def(&"farm").wood_cost
+	build_lumberyard_button.disabled = not _is_buildable_cell(selected_cell) \
+		or town.wood < TownState.building_def(&"lumberyard").wood_cost
 
 
 func _on_assign_pressed() -> void:
@@ -120,6 +151,15 @@ func _on_withdraw_pressed() -> void:
 	var message: String = town.withdraw_worker()
 	_select_cell(selected_cell)
 	_refresh_ui(message)
+
+
+func _on_build_pressed(def_id: StringName) -> void:
+	var message: String = town.try_build(selected_cell, def_id)
+	if town.buildings.get(selected_cell, &"") == def_id:
+		# 临时交互约定：建造成功后自动选中新建筑，方便立即查看信息。
+		message += " 已自动选中。"
+		_select_cell(selected_cell)
+		_refresh_ui(message)
 
 
 func _toggle_pause() -> void:
@@ -166,10 +206,12 @@ func _process(delta: float) -> void:
 	if paused:
 		return
 	town.advance_time(delta)
-	if town.grain != _last_shown_grain:
+	if town.grain != _last_shown_grain or town.wood != _last_shown_wood:
 		_last_shown_grain = town.grain
+		_last_shown_wood = town.wood
 		_update_resources()
 		_refresh_selection_panel()
+		_update_action_buttons()
 
 
 func _deselect_cell() -> void:
@@ -201,12 +243,18 @@ func _reset_town() -> void:
 
 
 func _update_resources() -> void:
-	resources_label.text = "木材：%d    粮食：%d    农田：%d    建造花费：%d 木材" % [
-		town.wood, town.grain, town.buildings.size(), TownState.BUILD_COST
+	var farm_count: int = 0
+	for kind: StringName in town.buildings.values():
+		if kind == &"farm":
+			farm_count += 1
+	resources_label.text = "木材：%d    粮食：%d    农田：%d    大本营：%s" % [
+		town.wood, town.grain, farm_count,
+		"已建立" if town.buildings.values().has(&"hq") else "无"
 	]
 
 
 func _refresh_ui(message: String) -> void:
 	_last_shown_grain = town.grain
+	_last_shown_wood = town.wood
 	_update_resources()
 	status_label.text = message
