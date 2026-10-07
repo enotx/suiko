@@ -13,6 +13,7 @@ const WORKER_NAME: String = "阮小二"
 const GRAIN_RATE_IDLE: float = 1.0
 const GRAIN_RATE_WORKED: float = 2.0
 const PROGRESS_PER_GRAIN: float = 1.0
+const SAVE_FORMAT_VERSION: int = 1
 
 var wood: int = STARTING_WOOD
 var grain: int = 0
@@ -62,6 +63,63 @@ func withdraw_worker() -> String:
         return "阮小二本来就是空闲的。"
     worker_cell = INVALID_CELL
     return "阮小二已撤回，当前空闲。"
+
+
+func to_save_data() -> Dictionary:
+    # 显式编码格子坐标与进度，不序列化任何节点或资源引用；Vector2i 不作字典键。
+    var buildings_data: Array = []
+    for cell: Vector2i in buildings:
+        buildings_data.append({
+            "x": cell.x,
+            "y": cell.y,
+            "kind": buildings[cell],
+            "progress": farm_progress.get(cell, 0.0),
+        })
+    return {
+        "version": SAVE_FORMAT_VERSION,
+        "wood": wood,
+        "grain": grain,
+        "worker_x": worker_cell.x if worker_cell != INVALID_CELL else -1,
+        "worker_y": worker_cell.y if worker_cell != INVALID_CELL else -1,
+        "buildings": buildings_data,
+    }
+
+
+func apply_save_data(data: Variant) -> String:
+    # 全部校验通过后才整体替换状态；任何失败返回中文原因，且不改动当前经营。
+    if typeof(data) != TYPE_DICTIONARY:
+        return "存档内容无法识别。"
+    if int(data.get("version", -1)) != SAVE_FORMAT_VERSION:
+        return "存档版本不兼容。"
+    if typeof(data.get("buildings")) != TYPE_ARRAY:
+        return "存档缺少建筑数据。"
+    var loaded_buildings: Dictionary = {}
+    var loaded_progress: Dictionary = {}
+    for entry: Variant in data["buildings"]:
+        if typeof(entry) != TYPE_DICTIONARY:
+            return "存档中的建筑数据损坏。"
+        var cell := Vector2i(int(entry.get("x", -99)), int(entry.get("y", -99)))
+        var kind := str(entry.get("kind", ""))
+        var progress := float(entry.get("progress", -1.0))
+        if not is_inside(cell) or is_water(cell) or not BUILDING_NAMES.has(kind) \
+                or loaded_buildings.has(cell) \
+                or progress < 0.0 or progress >= PROGRESS_PER_GRAIN:
+            return "存档中的建筑数据损坏。"
+        loaded_buildings[cell] = kind
+        loaded_progress[cell] = progress
+    var loaded_wood := int(data.get("wood", -1))
+    var loaded_grain := int(data.get("grain", -1))
+    if loaded_wood < 0 or loaded_grain < 0:
+        return "存档中的资源数据损坏。"
+    var loaded_worker := Vector2i(int(data.get("worker_x", -99)), int(data.get("worker_y", -99)))
+    if loaded_worker != INVALID_CELL and not loaded_buildings.has(loaded_worker):
+        return "存档中的分工数据损坏。"
+    wood = loaded_wood
+    grain = loaded_grain
+    buildings = loaded_buildings
+    farm_progress = loaded_progress
+    worker_cell = loaded_worker
+    return ""
 
 
 func is_inside(cell: Vector2i) -> bool:

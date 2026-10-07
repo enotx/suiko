@@ -214,6 +214,67 @@ func _run() -> void:
     await click_at(main.pause_button.get_global_rect().get_center())
     check(not main.paused and main.pause_button.text == "暂停经营", "Resume restores production")
 
+    # P05：存档读档——先验证规则层序列化与校验（独立实例）。
+    # 无人工况 +1/秒：推进 0.5 秒得到真正的“半个周期”。
+    var saver := TownState.new()
+    saver.try_build(Vector2i(4, 4))
+    saver.advance_time(0.5)
+    var save_data: Dictionary = saver.to_save_data()
+    var loader := TownState.new()
+    loader.try_build(Vector2i(9, 9))
+    check(loader.apply_save_data(save_data) == "", "Valid save applies cleanly")
+    check(loader.wood == saver.wood and loader.grain == saver.grain
+        and loader.worker_cell == TownState.INVALID_CELL and loader.buildings.size() == 1
+        and is_equal_approx(loader.farm_progress_ratio(Vector2i(4, 4)), 0.5),
+        "Save round-trip restores resources, worker, farm and progress")
+    loader.advance_time(0.5)
+    check(loader.grain == 1, "Continuing after load does not double-settle")
+    var guard := TownState.new()
+    guard.try_build(Vector2i(4, 4))
+    guard.assign_worker(Vector2i(4, 4))
+    check(guard.apply_save_data("junk") != "", "Non-dictionary save rejected")
+    check(guard.apply_save_data({"version": 0, "wood": 1, "grain": 1, "buildings": []}) != "",
+        "Old version rejected")
+    check(guard.apply_save_data({"version": 1, "wood": 50, "grain": 0,
+        "worker_x": -1, "worker_y": -1,
+        "buildings": [{"x": 0, "y": 0, "kind": "farm", "progress": 0.0}]}) != "",
+        "Water-cell building rejected")
+    check(guard.apply_save_data({"version": 1, "wood": 50, "grain": 0,
+        "worker_x": 4, "worker_y": 4, "buildings": []}) != "",
+        "Worker pointing at missing farm rejected")
+    check(guard.wood == 90 and guard.grain == 0 and guard.worker_cell == Vector2i(4, 4)
+        and guard.buildings.size() == 1,
+        "Rejected saves leave current state untouched")
+
+    # UI：缺失存档提示；暂停后保存→重置→读取，数值必须精确恢复；损坏文件不破坏经营。
+    DirAccess.remove_absolute("user://town_save.json")
+    await click_at(main.load_button.get_global_rect().get_center())
+    check(main.status_label.text.contains("还没有存档"), "Missing save reported")
+    await click_map(Vector2i(8, 2))
+    await click_at(main.assign_button.get_global_rect().get_center())
+    await click_at(main.pause_button.get_global_rect().get_center())
+    var saved_wood: int = main.town.wood
+    var saved_grain: int = main.town.grain
+    await click_at(main.save_button.get_global_rect().get_center())
+    check(main.status_label.text.contains("已保存"), "Save reports success")
+    await click_at(main.reset_button.get_global_rect().get_center())
+    check(main.town.buildings.is_empty() and main.town.wood == 100, "Reset clears before load")
+    await click_at(main.load_button.get_global_rect().get_center())
+    check(main.status_label.text.contains("已读取"), "Load reports success")
+    check(main.town.wood == saved_wood and main.town.grain == saved_grain
+        and main.town.worker_cell == Vector2i(8, 2) and main.town.buildings.size() == 1,
+        "Load restores the saved state exactly")
+    var broken := FileAccess.open("user://town_save.json", FileAccess.WRITE)
+    broken.store_string("not-json{{{")
+    broken.close()
+    await click_at(main.load_button.get_global_rect().get_center())
+    check(main.status_label.text.contains("损坏"), "Corrupt save reported")
+    check(main.town.wood == saved_wood and main.town.worker_cell == Vector2i(8, 2),
+        "Corrupt load keeps current state")
+    await click_at(main.pause_button.get_global_rect().get_center())
+    check(not main.paused, "Back to running after save/load checks")
+    DirAccess.remove_absolute("user://town_save.json")
+
     if "--capture" in OS.get_cmdline_user_args():
         for cell: Vector2i in [Vector2i(4, 4), Vector2i(5, 4), Vector2i(6, 5), Vector2i(10, 7)]:
             await click_map(cell)

@@ -3,6 +3,7 @@ extends Node
 ## 必须与 main.tscn 的 Main 根节点类型匹配，不要换回旧版 Node2D 脚本。
 
 const TownStateScript = preload("res://core/town_state.gd")
+const SAVE_PATH := "user://town_save.json"
 var town: TownState = TownStateScript.new()
 var showing_3d: bool = true
 var selected_cell: Vector2i = TownState.INVALID_CELL
@@ -25,6 +26,8 @@ var _last_shown_grain: int = -1
 @onready var assign_button: Button = $UI/AssignButton
 @onready var withdraw_button: Button = $UI/WithdrawButton
 @onready var pause_button: Button = $UI/PauseButton
+@onready var save_button: Button = $UI/SaveButton
+@onready var load_button: Button = $UI/LoadButton
 
 
 func _ready() -> void:
@@ -38,6 +41,8 @@ func _ready() -> void:
 	assign_button.pressed.connect(_on_assign_pressed)
 	withdraw_button.pressed.connect(_on_withdraw_pressed)
 	pause_button.pressed.connect(_toggle_pause)
+	save_button.pressed.connect(_save_town)
+	load_button.pressed.connect(_load_town)
 	$UI/Instructions.text = "蓝=水泊不可建；绿=土地可建；黄=农田可选中。\n农田自动产粮：无人 %0.0f/秒，有人 %0.0f/秒；可暂停。" % [
 		TownState.GRAIN_RATE_IDLE, TownState.GRAIN_RATE_WORKED
 	]
@@ -121,6 +126,39 @@ func _toggle_pause() -> void:
 	paused = not paused
 	pause_button.text = "继续经营" if paused else "暂停经营"
 	_refresh_ui("经营已暂停；生产停止，进度保留。" if paused else "继续经营；生产恢复。")
+
+
+func _save_town() -> void:
+	# 文件 IO 留在 Main；数据格式与校验在规则层（to_save_data / apply_save_data）。
+	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if file == null:
+		_refresh_ui("保存失败（错误码 %d）。" % FileAccess.get_open_error())
+		return
+	file.store_string(JSON.stringify(town.to_save_data()))
+	file.close()
+	_refresh_ui("已保存城镇；之后可读取存档恢复到这一刻。")
+
+
+func _load_town() -> void:
+	if not FileAccess.file_exists(SAVE_PATH):
+		_refresh_ui("还没有存档；先点击保存城镇。")
+		return
+	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if file == null:
+		_refresh_ui("存档无法打开（错误码 %d）。" % FileAccess.get_open_error())
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	if parsed == null:
+		_refresh_ui("存档文件已损坏（不是有效 JSON）；当前经营未受影响。")
+		return
+	var result: String = town.apply_save_data(parsed)
+	if result != "":
+		_refresh_ui("%s 当前经营未受影响。" % result)
+		return
+	# 旧选中格可能不再有效：读取后清除选择并重建显示与按钮状态。
+	_select_cell(TownState.INVALID_CELL)
+	_refresh_ui("已读取存档；建筑、分工和生产进度已恢复。")
 
 
 func _process(delta: float) -> void:

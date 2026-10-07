@@ -45,7 +45,7 @@ WorldImage 忽略鼠标事件，WorldViewport 禁止自动 GUI 输入，避免�
 - 2D 用于清晰观察规则，3D 用于空间表现；最终是否把 2D 打磨为完整战略视图另行决定。
 - 数值暂用具名常量；内容增长后再选 Resource 或 JSON 定义体系。
 - 当前 try_build 返回中文提示，未来需要程序区分结果时可改结构化返回值。
-- 当前建筑字典含 Vector2i 键；存档须显式编码，不能假定直接 JSON 往返。
+- 当前建筑字典含 Vector2i 键；存档须显式编码，不能假定直接 JSON 往返。已实现：`to_save_data`/`apply_save_data` 在规则层编码与校验（版本+逐项），文件 IO 在 Main（`user://town_save.json`）。
 - 不提前引入 Autoload、通用命令框架或事件总线。
 
 ## 后续时间模型
