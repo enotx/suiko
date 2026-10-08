@@ -9,9 +9,17 @@ const STARTING_WOOD: int = 100
 const INVALID_CELL: Vector2i = Vector2i(-1, -1)
 const WORKER_NAME: String = "阮小二"
 const PROGRESS_UNIT: float = 1.0
-const SAVE_FORMAT_VERSION: int = 2
+const SAVE_FORMAT_VERSION: int = 3
+const SAVE_FORMAT_VERSION_V2: int = 2
 const SAVE_FORMAT_VERSION_V1: int = 1
 const HQ_CELL: Vector2i = Vector2i(8, 5)
+
+# 地形三态（D18）：kind 是共享数据，高度与可建性都由它决定。
+const TERRAIN_WATER: StringName = &"water"
+const TERRAIN_PLAIN: StringName = &"plain"
+const TERRAIN_HIGHLAND: StringName = &"highland"
+const HIGHLAND_HEIGHT: float = 0.5
+const TERRAIN_CODES: Dictionary = { "w": TERRAIN_WATER, "p": TERRAIN_PLAIN, "h": TERRAIN_HIGHLAND }
 
 # 配表入口：键是建筑 id，值是 BuildingDef 资源。新增建筑在这里登记。
 const BUILDING_DEFS: Dictionary = {
@@ -24,6 +32,8 @@ var wood: int = STARTING_WOOD
 var grain: int = 0
 # 运行实例：格子 → 建筑 id（StringName）。预置大本营占一格。
 var buildings: Dictionary = {}
+# 地图地形：格子 → TERRAIN_*。由 _default_terrain 生成，随存档保存（v3 起）。
+var terrain: Dictionary = {}
 # 唯一人物的教学占位：worker_cell 为 INVALID_CELL 表示空闲。
 # 分工只记录在人物一侧（此处），建筑不反向存储工人，天然保证一人只能占一个工位。
 var worker_cell: Vector2i = INVALID_CELL
@@ -129,7 +139,37 @@ func to_save_data() -> Dictionary:
         "worker_x": worker_cell.x if worker_cell != INVALID_CELL else -1,
         "worker_y": worker_cell.y if worker_cell != INVALID_CELL else -1,
         "buildings": buildings_data,
+        "terrain": _terrain_data(),
     }
+
+
+func _terrain_data() -> Array:
+    var entries: Array = []
+    for cell: Vector2i in terrain:
+        entries.append({
+            "x": cell.x, "y": cell.y, "t": terrain_code(terrain[cell]),
+        })
+    return entries
+
+
+func _apply_terrain_data(entries: Variant) -> String:
+    # 逐项校验；缺失的格子按平地补齐，不因存档缺角而崩。
+    if typeof(entries) != TYPE_ARRAY:
+        return "存档缺少地形数据。"
+    var loaded: Dictionary = {}
+    for entry: Variant in entries:
+        if typeof(entry) != TYPE_DICTIONARY:
+            return "存档中的地形数据损坏。"
+        var cell := Vector2i(int(entry.get("x", -99)), int(entry.get("y", -99)))
+        var kind: StringName = TERRAIN_CODES.get(str(entry.get("t", "")), &"")
+        if not is_inside(cell) or kind == &"" or loaded.has(cell):
+            return "存档中的地形数据损坏。"
+        loaded[cell] = kind
+    for y in range(HEIGHT):
+        for x in range(WIDTH):
+            loaded[Vector2i(x, y)] = loaded.get(Vector2i(x, y), TERRAIN_PLAIN)
+    terrain = loaded
+    return ""
 
 
 func apply_save_data(data: Variant) -> String:
@@ -138,13 +178,19 @@ func apply_save_data(data: Variant) -> String:
         return "存档内容无法识别。"
     var version := int(data.get("version", -1))
     if version == SAVE_FORMAT_VERSION_V1:
-        # v1 → v2 迁移：补种预置大本营；旧档若占用预置格，该格建筑在迁移中让位。
+        # v1 → v3 迁移：补种预置大本营与默认地形；旧档若占用预置格，该格建筑在迁移中让位。
         data = data.duplicate(true)
         var entries: Array = data["buildings"]
         entries = entries.filter(func(entry: Variant) -> bool:
             return not (int(entry.get("x", -99)) == HQ_CELL.x and int(entry.get("y", -99)) == HQ_CELL.y))
         entries.append({ "x": HQ_CELL.x, "y": HQ_CELL.y, "kind": "hq", "progress": 0.0 })
         data["buildings"] = entries
+        data["terrain"] = _terrain_data()
+        data["version"] = SAVE_FORMAT_VERSION
+    elif version == SAVE_FORMAT_VERSION_V2:
+        # v2 → v3 迁移：补默认地形（旧档没有地形概念）。
+        data = data.duplicate(true)
+        data["terrain"] = _terrain_data()
         data["version"] = SAVE_FORMAT_VERSION
     elif version != SAVE_FORMAT_VERSION:
         return "存档版本不兼容。"
@@ -176,6 +222,9 @@ func apply_save_data(data: Variant) -> String:
     var loaded_worker := Vector2i(int(data.get("worker_x", -99)), int(data.get("worker_y", -99)))
     if loaded_worker != INVALID_CELL and not loaded_buildings.has(loaded_worker):
         return "存档中的分工数据损坏。"
+    var terrain_result: String = _apply_terrain_data(data.get("terrain"))
+    if terrain_result != "":
+        return terrain_result
     wood = loaded_wood
     grain = loaded_grain
     buildings = loaded_buildings
@@ -189,7 +238,16 @@ func is_inside(cell: Vector2i) -> bool:
 
 
 func is_water(cell: Vector2i) -> bool:
-    return cell.x < 3
+    return terrain.get(cell, TERRAIN_PLAIN) == TERRAIN_WATER
+
+
+func is_highland(cell: Vector2i) -> bool:
+    return terrain.get(cell, TERRAIN_PLAIN) == TERRAIN_HIGHLAND
+
+
+func terrain_height(cell: Vector2i) -> float:
+    # 唯一高度事实来源：3D 渲染抬升与建筑基准都从这里取值。
+    return HIGHLAND_HEIGHT if is_highland(cell) else 0.0
 
 
 func try_build(cell: Vector2i, def_id: StringName) -> String:
@@ -221,6 +279,27 @@ func reset() -> void:
 
 
 func _reset_preset() -> void:
-    # 大本营是预置核心（D15），不属于任何存档/重置后消失的内容。
+    # 大本营是预置核心（D15），地形是固定地图的一部分（D18）：重置都恢复默认。
     buildings = { HQ_CELL: &"hq" }
     farm_progress = {}
+    terrain = _default_terrain()
+
+
+func _default_terrain() -> Dictionary:
+    var map: Dictionary = {}
+    for y in range(HEIGHT):
+        for x in range(WIDTH):
+            var kind := TERRAIN_PLAIN
+            if x < 3:
+                kind = TERRAIN_WATER
+            elif x >= 12 and y <= 4:
+                kind = TERRAIN_HIGHLAND
+            map[Vector2i(x, y)] = kind
+    return map
+
+
+static func terrain_code(kind: StringName) -> String:
+    for code: String in TERRAIN_CODES:
+        if TERRAIN_CODES[code] == kind:
+            return code
+    return "p"

@@ -74,6 +74,18 @@ func _run() -> void:
     check(main.town.buildings.get(TownState.HQ_CELL, &"") == &"hq",
         "Headquarters must be preset on the map")
 
+    # P08：共享地形数据——两视图通过同一份 town 判定水面/高地/高度。
+    check(main.town.is_water(Vector2i(1, 5)), "West strip stays water")
+    check(not main.town.is_water(Vector2i(3, 5)), "Terrain data replaces the x<3 hack")
+    check(main.town.is_highland(Vector2i(13, 2)) and not main.town.is_highland(Vector2i(8, 5)),
+        "North-east highland exists")
+    check(main.town.terrain_height(Vector2i(13, 2)) == 0.5
+        and main.town.terrain_height(Vector2i(5, 5)) == 0.0,
+        "Highland is one level up")
+    check(main.map_2d.town == main.town, "2D reads shared terrain")
+    # 水面禁建照旧；高地按 D18 暂可建一切建筑。
+    check(main.town.try_build(Vector2i(1, 5), &"farm").contains("水面"), "Water rejects building")
+
     # 每个空地块的屏幕中心都必须能反向定位，且完整落在地图显示区域。
     for y in range(TownState.HEIGHT):
         for x in range(TownState.WIDTH):
@@ -200,6 +212,19 @@ func _run() -> void:
     mill_ok.advance_time(1.0)
     check(mill_ok.wood == wood_before + 3, "Idle lumberyard yields one wood per second")
 
+    # P08：高地上建造——建筑基准抬升到地形高度，且可被拾取。
+    await click_build(Vector2i(13, 2), main.build_farm_button)
+    check(main.town.buildings.get(Vector2i(13, 2), &"") == &"farm", "Highland accepts farms (D18)")
+    var elevated := false
+    for piece in main.map_3d.buildings_root.get_children():
+        if is_equal_approx(piece.position.x, 13.5) and is_equal_approx(piece.position.z, 2.5) \
+                and is_equal_approx(piece.position.y, 0.555):
+            elevated = true
+    check(elevated, "Highland farm model sits on the raised terrain")
+    var high_roof: Vector2 = main.map_3d.camera.unproject_position(Vector3(13.73, 1.05, 2.68))
+    check(main.map_3d.cell_at_position(high_roof) == Vector2i(13, 2),
+        "Highland building picking uses raised origin")
+
     # P04：实时产粮数值——用独立规则实例验证，避免运行帧时序影响断言。
     # 无人工况 +1/秒：推进 0.5 秒得到真正的“半个周期”。
     var saver := TownState.new()
@@ -240,6 +265,14 @@ func _run() -> void:
     check(migrated.buildings.size() == 2 and migrated.buildings.get(TownState.HQ_CELL, &"") == &"hq"
         and migrated.worker_cell == Vector2i(5, 5),
         "Migration plants HQ and keeps worker")
+    check(migrated.terrain_height(Vector2i(13, 2)) == 0.5, "V1 migration gains default terrain")
+    var v2_data := {"version": 2, "wood": 30, "grain": 1, "worker_x": -1, "worker_y": -1,
+        "buildings": [{"x": 6, "y": 6, "kind": "lumberyard", "progress": 0.1},
+            {"x": 8, "y": 5, "kind": "hq", "progress": 0.0}]}
+    var from_v2 := TownState.new()
+    check(from_v2.apply_save_data(v2_data) == "", "V2 save migrates cleanly")
+    check(from_v2.terrain_height(Vector2i(13, 2)) == 0.5 and from_v2.is_water(Vector2i(1, 1)),
+        "V2 migration gains default terrain")
     check(guard.wood == 90 and guard.grain == 0 and guard.worker_cell == Vector2i(4, 4)
         and guard.buildings.size() == 2,
         "Rejected saves leave current state untouched")
@@ -262,7 +295,8 @@ func _run() -> void:
     check(main.town.wood == saved_wood, "Load wood %d vs saved %d" % [main.town.wood, saved_wood])
     check(main.town.grain == saved_grain, "Load grain %d vs saved %d" % [main.town.grain, saved_grain])
     check(main.town.worker_cell == Vector2i(8, 2), "Load worker %s" % main.town.worker_cell)
-    check(main.town.buildings.size() == 3, "Load buildings 3 (HQ, farm and lumberyard)")
+    check(main.town.buildings.size() == 4, "Load buildings 4 (HQ, lumberyard and two farms)")
+    check(main.town.terrain_height(Vector2i(13, 2)) == 0.5, "Load restores highland terrain")
     check(main.status_label.text.contains("已读取"), "Load reports success")
     var broken := FileAccess.open("user://town_save.json", FileAccess.WRITE)
     broken.store_string("not-json{{{")
@@ -284,9 +318,10 @@ func _run() -> void:
     check(not main.paused and main.pause_button.text == "暂停经营", "Resume restores production")
 
     if "--capture" in OS.get_cmdline_user_args():
-        for cell: Vector2i in [Vector2i(4, 4), Vector2i(5, 4), Vector2i(6, 5), Vector2i(10, 7)]:
+        for cell: Vector2i in [Vector2i(4, 4), Vector2i(5, 4), Vector2i(6, 5)]:
             await click_build(cell, main.build_farm_button)
         await click_build(Vector2i(11, 4), main.build_lumberyard_button)
+        await click_build(Vector2i(13, 3), main.build_farm_button)
         await click_map(Vector2i(5, 4))
         await click_at(main.assign_button.get_global_rect().get_center())
         DirAccess.make_dir_recursive_absolute("res://build/verification")

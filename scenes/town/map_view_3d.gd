@@ -46,17 +46,23 @@ func _create_terrain() -> void:
     var land := _material(Color("769653"))
     var land_alternate := _material(Color("809e5c"))
     var water := _material(Color("427fa5"))
+    var highland := _material(Color("a8b868"))
     var base := _material(Color("384f3d"))
     _box(terrain, Vector3(8, -0.4, 6), Vector3(16.2, 0.5, 12.2), base)
     for y in range(TownState.HEIGHT):
         for x in range(TownState.WIDTH):
             var cell := Vector2i(x, y)
-            var material: Material = land if (x + y) % 2 == 0 else land_alternate
+            var height: float = town.terrain_height(cell)
+            var material: Material
             if town.is_water(cell):
                 material = water
-            # 格子顶面统一为 Y=0；格子间细缝仅作视觉分隔。
-            _box(terrain, Vector3(x + 0.5, -0.1, y + 0.5),
-                Vector3(0.97, 0.2, 0.97), material, cell)
+            elif town.is_highland(cell):
+                material = highland
+            else:
+                material = land if (x + y) % 2 == 0 else land_alternate
+            # 盒子从 -0.2 一直顶到地形高度：高地边缘是实心侧壁，不是悬浮薄板。
+            _box(terrain, Vector3(x + 0.5, (height - 0.2) * 0.5, y + 0.5),
+                Vector3(0.97, height + 0.2, 0.97), material, cell)
     terrain_pick_count = pick_boxes.size()
 
 
@@ -115,7 +121,8 @@ func refresh() -> void:
 
 
 func _build_farm(cell: Vector2i) -> void:
-    var origin := Vector3(cell.x, 0, cell.y)
+    # 建筑基准取自共享地形高度：高地上的建筑整体抬升，两视图一致。
+    var origin := Vector3(cell.x, town.terrain_height(cell), cell.y)
     var earth := _material(Color("b99258"))
     var crop := _material(Color("d9bb66"))
     var wall := _material(Color("e4d2ac"))
@@ -129,7 +136,7 @@ func _build_farm(cell: Vector2i) -> void:
 
 
 func _build_lumberyard(cell: Vector2i) -> void:
-    var origin := Vector3(cell.x, 0, cell.y)
+    var origin := Vector3(cell.x, town.terrain_height(cell), cell.y)
     var log_mat := _material(Color("a97e42"))
     var log_dark := _material(Color("7c5a2c"))
     var post := _material(Color("5f4520"))
@@ -143,7 +150,7 @@ func _build_lumberyard(cell: Vector2i) -> void:
 
 func _build_hq(cell: Vector2i) -> void:
     # 主体压在 0.6 高以内：斜俯视相机下不遮挡相邻格心的射线，192 格拾取检查才稳定。
-    var origin := Vector3(cell.x, 0, cell.y)
+    var origin := Vector3(cell.x, town.terrain_height(cell), cell.y)
     var stone := _material(Color("77808c"))
     var stone_dark := _material(Color("525a64"))
     var roof := _material(Color("8c4a3c"))

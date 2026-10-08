@@ -52,7 +52,7 @@ func _ready() -> void:
 	var lumber_def: BuildingDef = TownState.building_def(&"lumberyard")
 	build_farm_button.text = "建%s（%d木）" % [farm_def.display_name, farm_def.wood_cost]
 	build_lumberyard_button.text = "建%s（%d木）" % [lumber_def.display_name, lumber_def.wood_cost]
-	$UI/Instructions.text = "蓝=水泊；绿=空地；点空地选中后可建造。\n选中建筑可分配阮小二；产出速率见各建筑按钮。"
+	$UI/Instructions.text = "蓝=水泊；绿=平地；黄绿=高地（可建造）；点空地选中后建。\n大本营是核心，伐木场产木、农田产粮；选中建筑可分配阮小二。"
 	_apply_view()
 	_select_cell(TownState.INVALID_CELL)
 	_refresh_ui("先选一块空地，建一座伐木场，木材就不再是死水。")

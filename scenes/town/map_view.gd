@@ -32,6 +32,8 @@ func _draw() -> void:
             var color := Color("769653")
             if town.is_water(cell):
                 color = Color("427fa5")
+            elif town.is_highland(cell):
+                color = Color("a8b868")
             draw_rect(rect, color)
             draw_rect(rect, Color("354635"), false, 1.0)
             match town.buildings.get(cell, &""):

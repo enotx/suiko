@@ -62,8 +62,8 @@ offset_left = 595.0
 offset_top = 362.0
 offset_right = 930.0
 offset_bottom = 398.0
-text = "蓝=水泊不可建；绿=土地可建；黄=农田可选中。
-农田自动产粮：无人 +1/秒，有人 +2/秒；可暂停。"
+text = "蓝=水泊；绿=平地；黄绿=高地（可建造）；点空地选中后建。
+大本营是核心，伐木场产木、农田产粮；选中建筑可分配阮小二。"
 
 [node name="SelectionPanel" type="Label" parent="UI"]
 offset_left = 595.0
