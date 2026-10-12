@@ -11,6 +11,12 @@ var selected_cell: Vector2i = TownState.INVALID_CELL
 var paused: bool = false
 var _last_shown_grain: int = -1
 var _last_shown_wood: int = -1
+# 左键拖动平移 vs 点击选中：按下先记为“待定点击”，位移超过阈值才算拖拽；
+# 松手时没超过阈值就当作一次普通点击。阈值放宽可减少触摸板的误拖拽。
+const DRAG_THRESHOLD_PX: float = 8.0
+var _left_press_pending: bool = false
+var _left_drag_panning: bool = false
+var _left_press_position: Vector2 = Vector2.ZERO
 
 @onready var map_area: Control = $MapArea
 @onready var map_2d = $MapArea/Map2D
@@ -52,7 +58,7 @@ func _ready() -> void:
 	var lumber_def: BuildingDef = TownState.building_def(&"lumberyard")
 	build_farm_button.text = "建%s（%d木）" % [farm_def.display_name, farm_def.wood_cost]
 	build_lumberyard_button.text = "建%s（%d木）" % [lumber_def.display_name, lumber_def.wood_cost]
-	$UI/Instructions.text = "蓝=水泊 灰绿=草地 黄绿=高地 深绿/灰/棕=林地/石料/铁砂（暂不可建）。\n3D：滚轮缩放、右键拖动平移；点空地选中后建造，伐木场产木、农田产粮。"
+	$UI/Instructions.text = "蓝=水泊 灰绿=草地 黄绿=高地 深绿/灰/棕=林地/石料/铁砂（暂不可建）。\n3D：滚轮缩放，按住左键拖动平移（轻点即选中），右键同样平移；点空地选中后建造，伐木场产木、农田产粮。"
 	_apply_view()
 	_select_cell(TownState.INVALID_CELL)
 	_refresh_ui("先选一块空地，建一座伐木场，木材就不再是死水。")
@@ -62,7 +68,9 @@ func _on_map_input(event: InputEvent) -> void:
 	if showing_3d and _handle_camera_input(event):
 		map_area.accept_event()
 		return
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT \
+			and not event.pressed and not _left_drag_panning:
+		# 点击在左键松开时结算：按住并拖动过的释放不当作点击（见 _handle_camera_input）。
 		var cell: Vector2i
 		if showing_3d:
 			cell = map_3d.cell_at_position(event.position)
@@ -90,7 +98,8 @@ func _on_map_input(event: InputEvent) -> void:
 
 
 func _handle_camera_input(event: InputEvent) -> bool:
-	# 3D 视图的相机控制：滚轮缩放，右键/中键按住拖动平移。2D 整图缩放显示，不需要相机。
+	# 3D 视图的相机控制：滚轮缩放；左键按住拖动平移（触摸板友好），右键/中键同样平移。
+	# 左键按下先记为“待定点击”，移动超过阈值才转入平移；松手时若拖过就不当作点击。
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_WHEEL_UP:
@@ -101,6 +110,21 @@ func _handle_camera_input(event: InputEvent) -> bool:
 				if event.pressed:
 					map_3d.zoom_step(-1.0)
 					return true
+			MOUSE_BUTTON_LEFT:
+				if event.pressed:
+					_left_press_pending = true
+					_left_drag_panning = false
+					_left_press_position = event.position
+					return true
+				else:
+					var was_dragging: bool = _left_drag_panning
+					var was_pending: bool = _left_press_pending
+					_left_press_pending = false
+					_left_drag_panning = false
+					if was_dragging:
+						map_3d.end_pan()
+						return true
+					return not was_pending
 			MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE:
 				if event.pressed:
 					map_3d.begin_pan()
@@ -108,7 +132,19 @@ func _handle_camera_input(event: InputEvent) -> bool:
 					map_3d.end_pan()
 				return true
 	elif event is InputEventMouseMotion:
-		map_3d.pan_by(event.relative)
+		if _left_press_pending:
+			if not (event.button_mask & MOUSE_BUTTON_MASK_LEFT):
+				# 左键已在地图外松开：放弃这次待定点击。
+				_left_press_pending = false
+				_left_drag_panning = false
+				return false
+			if not _left_drag_panning \
+					and event.position.distance_to(_left_press_position) > DRAG_THRESHOLD_PX:
+				_left_drag_panning = true
+				map_3d.begin_pan()
+			if _left_drag_panning:
+				map_3d.pan_by(event.relative)
+				return true
 		return map_3d.is_panning()
 	return false
 

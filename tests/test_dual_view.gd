@@ -48,6 +48,30 @@ func click_build(cell: Vector2i, build_button: Button) -> void:
     await click_at(build_button.get_global_rect().get_center())
 
 
+func drag_on_map(from: Vector2, to: Vector2) -> void:
+    # 模拟按住左键拖动：按下 → 多段位移（带按键掩码）→ 松开。
+    var press := InputEventMouseButton.new()
+    press.button_index = MOUSE_BUTTON_LEFT
+    press.pressed = true
+    press.position = from
+    press.global_position = from
+    root.push_input(press, true)
+    for i: int in range(8):
+        var motion := InputEventMouseMotion.new()
+        motion.position = from.lerp(to, (i + 1) / 8.0)
+        motion.global_position = from.lerp(to, (i + 1) / 8.0)
+        motion.relative = (to - from) / 8.0
+        motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+        root.push_input(motion, true)
+    var release := InputEventMouseButton.new()
+    release.button_index = MOUSE_BUTTON_LEFT
+    release.pressed = false
+    release.position = to
+    release.global_position = to
+    root.push_input(release, true)
+    await process_frame
+
+
 func switch_view() -> void:
     await click_at(main.view_button.get_global_rect().get_center())
 
@@ -176,6 +200,24 @@ func _run() -> void:
         "Pan clamps to the map bounds")
     main.map_3d.end_pan()
     check(not main.map_3d.is_panning(), "Pan ends cleanly")
+    main.map_3d.frame_map()
+    await process_frame
+
+    # E01.b 交互修改：按住左键拖动即平移；几乎没动的松手仍是点击（触摸板友好）。
+    var drag_from: Vector2 = main.map_area.global_position + Vector2(300, 200)
+    var target_before: Vector3 = main.map_3d.cam_target
+    var wood_before_drag: int = main.town.wood
+    await drag_on_map(drag_from, drag_from + Vector2(90, -60))
+    check(main.map_3d.cam_target.x < target_before.x and main.map_3d.cam_target.z > target_before.z,
+        "Left-drag pans the camera")
+    check(main.town.wood == wood_before_drag and main.selected_cell == TownState.INVALID_CELL,
+        "Drag release must not count as a click")
+    main.map_3d.frame_map()
+    main.map_3d.zoom_step(6.0)
+    var tap_point: Vector2 = main.map_area.global_position \
+        + main.map_3d.camera.unproject_position(Vector3(40.5, 0.0, 30.5))
+    await drag_on_map(tap_point, tap_point + Vector2(4, 2))
+    check(main.selected_cell == Vector2i(40, 30), "Tap with small jitter still selects")
     main.map_3d.frame_map()
     await process_frame
 
