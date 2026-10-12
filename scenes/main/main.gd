@@ -69,9 +69,10 @@ func _on_map_input(event: InputEvent) -> void:
 		else:
 			cell = map_2d.cell_at_position(event.position)
 		var message: String
-		if town.buildings.has(cell):
-			message = "已选中 %s (%d, %d)。" % [town.building_name(cell), cell.x, cell.y]
-			_select_cell(cell)
+		var origin: Vector2i = town.building_origin_at(cell)
+		if origin != TownState.INVALID_CELL:
+			message = "已选中 %s (%d, %d)。" % [town.building_name(origin), origin.x, origin.y]
+			_select_cell(origin)
 		elif not town.is_inside(cell):
 			message = "请在地图范围内操作。"
 		elif town.is_water(cell):
@@ -140,11 +141,12 @@ func _refresh_selection_panel() -> void:
 		var worker_text: String = TownState.WORKER_NAME if town.worker_is_at(selected_cell) else "无"
 		var progress_text: String = "产出进度：%d%%" % int(town.farm_progress_ratio(selected_cell) * 100.0) \
 			if def.produces != &"" else "不产出"
-		selection_label.text = "选中：%s\n位置：(%d, %d)\n工作者：%s\n%s" % [
-			def.display_name, selected_cell.x, selected_cell.y, worker_text, progress_text
+		selection_label.text = "选中：%s\n位置：(%d, %d)　占地：%d×%d\n工作者：%s\n%s" % [
+			def.display_name, selected_cell.x, selected_cell.y,
+			def.footprint.x, def.footprint.y, worker_text, progress_text
 		]
 	elif _is_buildable_cell(selected_cell):
-		selection_label.text = "空地 (%d, %d)\n阮小二：%s\n在下方选择要建造的建筑。" % [
+		selection_label.text = "空地 (%d, %d)\n阮小二：%s\n在下方选择要建造的建筑；多格建筑从锚点向右下扩展。" % [
 			selected_cell.x, selected_cell.y, _worker_summary()
 		]
 	else:
@@ -174,9 +176,9 @@ func _update_action_buttons() -> void:
 	withdraw_button.disabled = town.worker_cell == TownState.INVALID_CELL
 	build_farm_button.visible = not building_selected
 	build_lumberyard_button.visible = not building_selected
-	build_farm_button.disabled = not _is_buildable_cell(selected_cell) \
+	build_farm_button.disabled = not town.can_build_at(selected_cell, &"farm") \
 		or town.wood < TownState.building_def(&"farm").wood_cost
-	build_lumberyard_button.disabled = not _is_buildable_cell(selected_cell) \
+	build_lumberyard_button.disabled = not town.can_build_at(selected_cell, &"lumberyard") \
 		or town.wood < TownState.building_def(&"lumberyard").wood_cost
 
 

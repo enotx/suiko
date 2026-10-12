@@ -109,7 +109,23 @@ static func validate_defs() -> Array[String]:
 			problems.append("建筑 %s 的产出速率为负" % id)
 		if not def.unique and def.wood_cost <= 0:
 			problems.append("可建造建筑 %s 的造价必须大于 0" % id)
+		if def.footprint.x < 1 or def.footprint.y < 1:
+			problems.append("建筑 %s 的占地必须至少 1×1" % id)
 	return problems
+
+
+## 建筑从锚点 origin 向 +X/+Y 占用 footprint 的全部格子。
+static func covered_cells(origin: Vector2i, footprint: Vector2i) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	for dy: int in range(footprint.y):
+		for dx: int in range(footprint.x):
+			cells.append(Vector2i(origin.x + dx, origin.y + dy))
+	return cells
+
+
+static func _def_covered_cells(origin: Vector2i, kind: StringName) -> Array[Vector2i]:
+	var def := building_def(kind)
+	return covered_cells(origin, def.footprint if def != null else Vector2i.ONE)
 
 
 ## 解析调色板布局图。返回 { "error": 原因 } 或
@@ -146,6 +162,12 @@ static func parse_layout(texture: Texture2D, sidecar: Variant = null) -> Diction
 		return { "error": "布局图缺少大本营标记（品红 #ff00ff）。" }
 	if hq_cells.size() > 1:
 		return { "error": "布局图的大本营标记（品红）只能有一个，找到 %d 个。" % hq_cells.size() }
+	var hq_def := building_def(&"hq")
+	var hq_footprint: Vector2i = hq_def.footprint if hq_def != null else Vector2i.ONE
+	if hq_cells[0].x + hq_footprint.x > width or hq_cells[0].y + hq_footprint.y > height:
+		return { "error": "大本营标记 (%d, %d) 的占地 %d×%d 超出布局图边缘。" % [
+			hq_cells[0].x, hq_cells[0].y, hq_footprint.x, hq_footprint.y,
+		] }
 	var name_text := "无名城镇"
 	if sidecar is Dictionary and typeof(sidecar.get("name")) == TYPE_STRING \
 			and not str(sidecar["name"]).is_empty():
@@ -190,8 +212,23 @@ func load_layout_texture(texture: Texture2D, sidecar: Variant = null) -> String:
 
 
 func building_name(cell: Vector2i) -> String:
-	var def := building_def(buildings.get(cell, &""))
+	var def := building_def_at(cell)
 	return def.display_name if def != null else "未知建筑"
+
+
+## 覆盖此格的建筑锚点；没有则 INVALID_CELL。建筑数量少，线性查找足够。
+func building_origin_at(cell: Vector2i) -> Vector2i:
+	for origin: Vector2i in buildings:
+		if cell in _def_covered_cells(origin, buildings[origin]):
+			return origin
+	return INVALID_CELL
+
+
+func building_def_at(cell: Vector2i) -> BuildingDef:
+	var origin := building_origin_at(cell)
+	if origin == INVALID_CELL:
+		return null
+	return building_def(buildings.get(origin, &""))
 
 
 func farm_progress_ratio(cell: Vector2i) -> float:
@@ -358,12 +395,18 @@ func apply_save_data(data: Variant) -> String:
 	if size_result.has("error"):
 		return size_result["error"]
 	var size: Vector2i = size_result["data"]
+	# 大本营是占地建筑（E01.b）：旧档按 1×1 记录，按当前占地扩位时与它重叠的建筑让位
+	#（幂等，对 v4 档同样安全；让位语义与 v1 迁移一致）。
+	var drop_result := _drop_buildings_under_hq(data["buildings"], size)
+	if drop_result != "":
+		return drop_result
 	var terrain_result := _parse_terrain_data(data.get("terrain"), size)
 	if terrain_result.has("error"):
 		return terrain_result["error"]
 	var parsed_terrain: Dictionary = terrain_result["data"]
 	var loaded_buildings: Dictionary = {}
 	var loaded_progress: Dictionary = {}
+	var occupied: Dictionary = {}
 	var unique_seen: Dictionary = {}
 	var hq_count: int = 0
 	for entry: Variant in data["buildings"]:
@@ -373,8 +416,7 @@ func apply_save_data(data: Variant) -> String:
 		var kind := StringName(str(entry.get("kind", "")))
 		var progress := float(entry.get("progress", -1.0))
 		var def := building_def(kind)
-		if not _in_bounds(cell, size) or not _cell_buildable(cell, parsed_terrain, size) or def == null \
-				or loaded_buildings.has(cell) \
+		if def == null or not _in_bounds(cell, size) \
 				or progress < 0.0 or progress >= PROGRESS_UNIT:
 			return "存档中的建筑数据损坏。"
 		if def.unique:
@@ -383,6 +425,11 @@ func apply_save_data(data: Variant) -> String:
 			if kind == &"hq":
 				hq_count += 1
 		unique_seen[kind] = true
+		for covered: Vector2i in covered_cells(cell, def.footprint):
+			if not _in_bounds(covered, size) or not _cell_buildable(covered, parsed_terrain, size) \
+					or occupied.has(covered):
+				return "存档中的建筑数据损坏。"
+			occupied[covered] = cell
 		loaded_buildings[cell] = kind
 		loaded_progress[cell] = progress
 	if hq_count < 1:
@@ -416,6 +463,48 @@ static func _find_hq_cell(loaded_buildings: Dictionary) -> Vector2i:
 		if loaded_buildings[cell] == &"hq":
 			return cell
 	return LEGACY_HQ_CELL
+
+
+## 大本营扩位让位：删除占地与大本营重叠的其他建筑条目（原地修改 entries）。
+## 返回中文错误原因；空串表示成功（含找不到大本营的情况，由主校验统一报错）。
+static func _drop_buildings_under_hq(entries: Array, size: Vector2i) -> String:
+	var hq_index := -1
+	var hq_origin := Vector2i.ZERO
+	for i: int in range(entries.size()):
+		var entry: Variant = entries[i]
+		if typeof(entry) != TYPE_DICTIONARY:
+			return "存档中的建筑数据损坏。"
+		if str(entry.get("kind", "")) == "hq":
+			if hq_index >= 0:
+				return "存档中的建筑数据损坏。"
+			hq_index = i
+			hq_origin = Vector2i(int(entry.get("x", -99)), int(entry.get("y", -99)))
+	if hq_index < 0:
+		return ""
+	var hq_def := building_def(&"hq")
+	var footprint: Vector2i = hq_def.footprint if hq_def != null else Vector2i.ONE
+	var hq_covered := covered_cells(hq_origin, footprint)
+	for covered: Vector2i in hq_covered:
+		if not _in_bounds(covered, size):
+			return "存档中的大本营占地超出地图。"
+	var kept: Array = []
+	for i: int in range(entries.size()):
+		if i == hq_index:
+			kept.append(entries[i])
+			continue
+		var entry: Dictionary = entries[i]
+		var origin := Vector2i(int(entry.get("x", -99)), int(entry.get("y", -99)))
+		var kind := StringName(str(entry.get("kind", "")))
+		var overlaps := false
+		for covered: Vector2i in _def_covered_cells(origin, kind):
+			if covered in hq_covered:
+				overlaps = true
+				break
+		if not overlaps:
+			kept.append(entry)
+	entries.clear()
+	entries.append_array(kept)
+	return ""
 
 
 static func _in_bounds(cell: Vector2i, size: Vector2i) -> bool:
@@ -457,8 +546,22 @@ static func _cell_buildable(cell: Vector2i, terrain_map: Dictionary, size: Vecto
 
 
 func can_build_on(cell: Vector2i) -> bool:
-	# 当前地图上该格是否可建：范围内、非水面、非资源区块且无建筑。
-	return _cell_buildable(cell, terrain, map_size) and not buildings.has(cell)
+	# 当前地图上该格是否可作建筑锚点：地形可建且没有被任何建筑的占地覆盖。
+	return _cell_buildable(cell, terrain, map_size) and building_origin_at(cell) == INVALID_CELL
+
+
+## 完整建造预检（不扣资源）：占地全部格子的地形、边界与占用都合法。
+func can_build_at(cell: Vector2i, def_id: StringName) -> bool:
+	var def := building_def(def_id)
+	if def == null:
+		return false
+	if def.unique and buildings.values().has(def_id):
+		return false
+	for covered: Vector2i in covered_cells(cell, def.footprint):
+		if not _cell_buildable(covered, terrain, map_size) \
+				or building_origin_at(covered) != INVALID_CELL:
+			return false
+	return true
 
 
 func try_build(cell: Vector2i, def_id: StringName) -> String:
@@ -468,20 +571,23 @@ func try_build(cell: Vector2i, def_id: StringName) -> String:
 		return "未知建筑类型。"
 	if def.unique and buildings.values().has(def_id):
 		return "%s全图只能有一座。" % def.display_name
-	if not is_inside(cell):
-		return "请在地图范围内建造。"
-	if is_water(cell):
-		return "水面不能建造%s。" % def.display_name
-	if is_resource(cell):
-		return "资源区块暂时不能建造%s。" % def.display_name
-	if buildings.has(cell):
-		return "这一格已经有建筑了。"
+	for covered: Vector2i in covered_cells(cell, def.footprint):
+		if not is_inside(covered):
+			return "请在地图范围内建造。"
+		if is_water(covered):
+			return "水面不能建造%s。" % def.display_name
+		if is_resource(covered):
+			return "资源区块暂时不能建造%s。" % def.display_name
+		if building_origin_at(covered) != INVALID_CELL:
+			return "该位置与已有建筑重叠。"
 	if wood < def.wood_cost:
 		return "木材不足，点击重置可以重新练习。"
 
 	buildings[cell] = def_id
 	wood -= def.wood_cost
-	return "已在 (%d, %d) 建造%s。" % [cell.x, cell.y, def.display_name]
+	return "已在 (%d, %d) 建造%s（占地 %d×%d）。" % [
+		cell.x, cell.y, def.display_name, def.footprint.x, def.footprint.y,
+	]
 
 
 func reset() -> void:

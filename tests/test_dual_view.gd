@@ -96,15 +96,31 @@ func _run() -> void:
     check(grass_probe.try_build(Vector2i(30, 26), &"farm").contains("已")
         and grass_probe.wood == 90, "Grass accepts farms like plain")
 
-    # 布局解析：合法小图、缺大本营、非法颜色、多标记都要有明确中文原因。
+    # E01.b：多格占地——大本营 2×2，锚点是标记格，覆盖格的点击与建造都归属锚点。
+    check(town.building_origin_at(Vector2i(31, 31)) == Vector2i(30, 30)
+        and town.building_origin_at(Vector2i(30, 31)) == Vector2i(30, 30),
+        "HQ covers the cells right and down of the marker")
+    check(town.building_def_at(Vector2i(31, 31)) == TownState.building_def(&"hq"),
+        "Covered cell resolves to the HQ def")
+    check(town.can_build_on(Vector2i(31, 31)) == false, "Covered cell is not buildable")
+    check(town.try_build(Vector2i(31, 31), &"farm").contains("重叠"), "Covered cell rejects building")
+    check(town.try_build(Vector2i(30, 31), &"farm").contains("重叠"), "Second covered cell rejects too")
+    check(town.wood == TownState.STARTING_WOOD, "Overlap rejections never charge")
+
+    # 布局解析：合法小图、大本营占地越界、缺标记、非法颜色、多标记都要有明确中文原因。
     var tiny := Image.create_empty(3, 3, false, Image.FORMAT_RGBA8)
     tiny.fill(Color("769653"))
     tiny.set_pixel(2, 2, Color("ff00ff"))
+    var edge := TownState.parse_layout(ImageTexture.create_from_image(tiny))
+    check(edge.has("error") and str(edge["error"]).contains("超出"),
+        "HQ footprint must fit inside the layout image")
+    tiny.set_pixel(1, 1, Color("ff00ff"))
+    tiny.set_pixel(2, 2, Color("769653"))
     var parsed := TownState.parse_layout(ImageTexture.create_from_image(tiny), {"name": "小图"})
     check(not parsed.has("error") and parsed["size"] == Vector2i(3, 3)
-        and parsed["hq_cell"] == Vector2i(2, 2) and parsed["name"] == "小图",
+        and parsed["hq_cell"] == Vector2i(1, 1) and parsed["name"] == "小图",
         "Tiny layout parses with marker and sidecar name")
-    tiny.set_pixel(2, 2, Color("769653"))
+    tiny.set_pixel(1, 1, Color("769653"))
     var no_hq := TownState.parse_layout(ImageTexture.create_from_image(tiny))
     check(no_hq.has("error") and str(no_hq["error"]).contains("大本营"), "Missing HQ marker reported")
     tiny.set_pixel(0, 0, Color("123456"))
@@ -118,12 +134,11 @@ func _run() -> void:
     check(two_hq.has("error") and str(two_hq["error"]).contains("只能有一个"),
         "Two HQ markers rejected")
     var loader_state := TownState.new()
-    tiny.set_pixel(1, 1, Color("6ca16e"))
+    tiny.set_pixel(2, 2, Color("769653"))
     check(loader_state.load_layout_texture(ImageTexture.create_from_image(tiny), {"name": "小图"}) == "",
         "Valid layout loads")
-    check(loader_state.map_size == Vector2i(3, 3) and loader_state.hq_cell == Vector2i(2, 2)
-        and loader_state.terrain_kind(Vector2i(0, 0)) == &"water"
-        and loader_state.terrain_kind(Vector2i(1, 1)) == &"grass",
+    check(loader_state.map_size == Vector2i(3, 3) and loader_state.hq_cell == Vector2i(1, 1)
+        and loader_state.terrain_kind(Vector2i(0, 0)) == &"water",
         "Loaded layout drives terrain and HQ")
     loader_state.reset()
     check(loader_state.map_size == Vector2i(60, 60) and loader_state.map_name == "测试城镇",
@@ -264,13 +279,21 @@ func _run() -> void:
     check(main.town.worker_cell == TownState.INVALID_CELL, "Reset returns worker to idle")
     check(main.selection_label.text.contains("空闲"), "Panel shows idle after reset")
 
-    # P07：大本营不可建第二座、不需要工人；伐木场产木材。
+    # P07：大本营不可建第二座、不需要工人；点击任意覆盖格都选中锚点；伐木场产木材。
     await click_map(town.hq_cell)
-    check(main.selection_label.text.contains("大本营"), "HQ can be selected and identified")
+    check(main.selection_label.text.contains("大本营")
+        and main.selection_label.text.contains("占地：2×2"),
+        "HQ panel shows footprint")
     check(main.assign_button.disabled, "Assign disabled on HQ")
     check(main.town.assign_worker(town.hq_cell).contains("不需要工人"), "HQ refuses workers")
     var duplicate_hq: String = main.town.try_build(Vector2i(34, 50), &"hq")
     check(duplicate_hq.contains("只能有一座"), "Second HQ rejected by unique rule")
+    await click_map(Vector2i(31, 31))
+    check(main.selected_cell == Vector2i(30, 30)
+        and main.selection_label.text.contains("大本营"),
+        "Clicking a covered cell selects the HQ anchor")
+    check(main.map_3d.selection_mark.position == Vector3(30.5, 0.0, 30.5),
+        "Selection mark sits on the anchor cell")
     await click_map(Vector2i(34, 50))
     check(main.build_lumberyard_button.visible and not main.assign_button.visible,
         "Empty land shows build buttons")
@@ -386,6 +409,20 @@ func _run() -> void:
     check(from_v2.apply_save_data(v2_data) == "", "V2 save migrates cleanly")
     check(from_v2.terrain_height(Vector2i(13, 2)) == 0.5 and from_v2.is_water(Vector2i(1, 1)),
         "V2 migration gains legacy terrain")
+    # E01.b：大本营扩到 2×2 后，旧档里落在大本营占地内的建筑让位。
+    var v2_overlap := {"version": 2, "wood": 30, "grain": 1, "worker_x": -1, "worker_y": -1,
+        "buildings": [{"x": 9, "y": 6, "kind": "farm", "progress": 0.0},
+            {"x": 8, "y": 5, "kind": "hq", "progress": 0.0}]}
+    var from_v2_overlap := TownState.new()
+    check(from_v2_overlap.apply_save_data(v2_overlap) == "",
+        "V2 save with a building inside the HQ footprint migrates")
+    check(from_v2_overlap.buildings.size() == 1 and from_v2_overlap.buildings.has(Vector2i(8, 5)),
+        "Building under the 2x2 HQ is dropped")
+    var v2_dropped_worker := {"version": 2, "wood": 30, "grain": 1, "worker_x": 9, "worker_y": 6,
+        "buildings": [{"x": 9, "y": 6, "kind": "farm", "progress": 0.0},
+            {"x": 8, "y": 5, "kind": "hq", "progress": 0.0}]}
+    check(TownState.new().apply_save_data(v2_dropped_worker) != "",
+        "Worker pointing at a dropped building is rejected")
     var v3_data := {"version": 3, "wood": 30, "grain": 1, "worker_x": -1, "worker_y": -1,
         "buildings": [{"x": 6, "y": 6, "kind": "lumberyard", "progress": 0.1},
             {"x": 8, "y": 5, "kind": "hq", "progress": 0.0}],
@@ -462,7 +499,7 @@ func _run() -> void:
         root.get_texture().get_image().save_png("res://build/verification/dual-view-2d.png")
 
     if failures == 0:
-        print("PASS: 60x60 palette map, sampled picking, camera pan/zoom, new terrain rules, saves and migrations")
+        print("PASS: palette map, multi-cell HQ, camera pan/zoom, terrain rules, saves and migrations")
     else:
         print("FAIL: %d checks" % failures)
     main.queue_free()

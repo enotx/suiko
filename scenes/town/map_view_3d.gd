@@ -264,16 +264,26 @@ func _build_lumberyard(cell: Vector2i) -> void:
 
 
 func _build_hq(cell: Vector2i) -> void:
-	# 主体压在 0.6 高以内：斜俯视相机下不遮挡相邻格心的射线，整图拾取检查才稳定。
+	# 大本营占地 2×2（E01.b）：整块低平台 + 居中主体。边缘压在 0.15 内，
+	# 保证斜俯视相机下相邻格心的拾取射线不被遮挡；主体抬高也不越过 0.6。
+	var def: BuildingDef = TownState.building_def(&"hq")
+	var footprint: Vector2i = def.footprint if def != null else Vector2i.ONE
+	var width := float(footprint.x)
+	var depth := float(footprint.y)
 	var origin := Vector3(cell.x, town.terrain_height(cell), cell.y)
+	var center := Vector3(width * 0.5, 0.0, depth * 0.5)
 	var stone := _material(Color("77808c"))
 	var stone_dark := _material(Color("525a64"))
 	var roof := _material(Color("8c4a3c"))
 	var flag := _material(Color("ffd75e"))
-	_box(buildings_root, origin + Vector3(0.5, 0.15, 0.5), Vector3(0.9, 0.3, 0.9), stone, cell)
-	_box(buildings_root, origin + Vector3(0.5, 0.425, 0.5), Vector3(0.65, 0.25, 0.65), stone_dark, cell)
-	_box(buildings_root, origin + Vector3(0.5, 0.58, 0.5), Vector3(0.75, 0.06, 0.75), roof, cell)
-	_box(buildings_root, origin + Vector3(0.5, 0.655, 0.5), Vector3(0.05, 0.09, 0.05), flag, cell)
+	_box(buildings_root, origin + center + Vector3(0.0, 0.075, 0.0),
+		Vector3(width - 0.06, 0.15, depth - 0.06), stone, cell)
+	_box(buildings_root, origin + center + Vector3(0.0, 0.35, 0.0),
+		Vector3(width * 0.45, 0.4, depth * 0.45), stone_dark, cell)
+	_box(buildings_root, origin + center + Vector3(0.0, 0.575, 0.0),
+		Vector3(width * 0.55, 0.05, depth * 0.55), roof, cell)
+	_box(buildings_root, origin + center + Vector3(0.0, 0.66, 0.0),
+		Vector3(0.05, 0.09, 0.05), flag, cell)
 
 
 func cell_at_position(local_position: Vector2) -> Vector2i:

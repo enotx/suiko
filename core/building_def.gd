@@ -10,3 +10,5 @@ extends Resource
 @export var worked_rate: float
 @export var worker_assignable: bool
 @export var unique: bool
+## 占地格数（宽, 高）：建筑从锚点格向 +X/+Y 扩展；锚点是玩家点击/预置的格子。
+@export var footprint: Vector2i = Vector2i.ONE

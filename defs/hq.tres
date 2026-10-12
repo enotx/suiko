@@ -12,3 +12,4 @@ base_rate = 0.0
 worked_rate = 0.0
 worker_assignable = false
 unique = true
+footprint = Vector2i(2, 2)

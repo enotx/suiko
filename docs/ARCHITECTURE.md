@@ -19,7 +19,7 @@ Main (Node, main.gd；持有唯一 TownState)
 | 文件 | 职责 |
 | --- | --- |
 | core/town_state.gd | RefCounted；地图尺寸与地形、格子规则、资源、建筑运行实例、人物分工、生产、建造、布局解析和重置 |
-| core/building_def.gd | BuildingDef Resource：建筑配表条目（id/名称/造价/产出/速率/可分配/唯一） |
+| core/building_def.gd | BuildingDef Resource：建筑配表条目（id/名称/造价/产出/速率/可分配/唯一/占地 footprint） |
 | defs/*.tres | 建筑配表：farm、lumberyard、hq；TownState.BUILDING_DEFS 登记，`validate_defs()` 启动自检 |
 | defs/maps/*.png | 调色板地图布局（D26）：1 像素 = 1 格，颜色 = 地形，见下文"地图布局"；可选同名 .json 只写 `{"name": ...}` |
 | scenes/main/main.gd | 创建并持有唯一状态；分发点击与相机输入、调用规则、刷新两种显示、切换视图、暂停与存档 IO |
@@ -56,7 +56,9 @@ WorldImage 忽略鼠标事件，WorldViewport 禁止自动 GUI 输入，避免�
 - core 不依赖输入、场景树或画面；允许 Godot 数据类型和 RefCounted/Resource。
 - 两个视图只读状态；Main 调用规则。不要在任一视图里单独推进生产或战斗。
 - 人物分工只记录在人物一侧（`worker_cell`），建筑不反向存储工人，保证一人一工位；多人物时再拆分定义与实例。
-- 建筑种类经 `defs/*.tres` 配表（D17）；大本营为预置唯一建筑（位置在 `town_state.hq_cell`，来自布局图标记，reset 保留、不需工人、不可建第二座）；3D 大本营主体高度压在约 0.6 格内，避免斜俯视相机遮挡相邻格心的拾取射线。
+- 建筑种类经 `defs/*.tres` 配表（D17）；大本营为预置唯一建筑（位置在 `town_state.hq_cell`，来自布局图标记，reset 保留、不需工人、不可建第二座）；3D 大本营边缘压在约 0.15 格内、主体不越过 0.6，避免斜俯视相机遮挡相邻格心的拾取射线。
+- 多格占地（E01.b）：`BuildingDef.footprint` 描述占地，建筑从锚点格向 +X/+Y 扩展；`building_origin_at` 把任意覆盖格映射回锚点（点击/建造/选中一律以锚点为准）；建造与存档校验都按整块占地逐格判定。大本营 2×2 是首个演示（临时设定，可调）。
+- 大本营扩位迁移：旧档按 1×1 记录，读档时若旧建筑落在大本营当前占地内则让位（幂等，与 v1 迁移同语义）；工位指向被让位建筑的存档整体拒载。
 - 地形种类与可建性由 `TownState` 决定：水面禁建照旧；资源区块（林地/石料/铁砂）在采集玩法接入前暂禁建造（临时规则，用户验收可改）；高格按 D18 暂可建一切建筑。
 - 2D 用于清晰观察规则，3D 用于空间表现；最终是否把 2D 打磨为完整战略视图另行决定。
 - 数值暂用具名常量；内容增长后再选 Resource 或 JSON 定义体系。

@@ -60,19 +60,27 @@ func _draw() -> void:
 			draw_rect(rect, color)
 			if _cell_px >= 8.0:
 				draw_rect(rect, Color("354635"), false, 1.0)
-			match town.buildings.get(cell, &""):
-				&"farm":
-					_draw_farm(rect)
-				&"lumberyard":
-					_draw_lumberyard(rect)
-				&"hq":
-					_draw_hq(rect)
 			var glyph: String = RESOURCE_GLYPHS.get(town.terrain_kind(cell), "")
 			if glyph != "" and _cell_px >= 14.0:
 				draw_string(ThemeDB.fallback_font, rect.position + Vector2(4.0, _cell_px - 4.0),
 					glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, int(_cell_px * 0.7), Color("1e2a1e"))
-	if town.buildings.has(selected_cell):
-		var highlight := Rect2(_origin + Vector2(selected_cell) * _cell_px, Vector2.ONE * _cell_px)
+	# 建筑按锚点与占地绘制：多格建筑画一个整体轮廓，不再逐格重复。
+	for origin: Vector2i in town.buildings:
+		var def: BuildingDef = town.building_def(town.buildings[origin])
+		if def == null:
+			continue
+		var rect := Rect2(_origin + Vector2(origin) * _cell_px, Vector2(def.footprint) * _cell_px)
+		match town.buildings[origin]:
+			&"farm":
+				_draw_farm(rect)
+			&"lumberyard":
+				_draw_lumberyard(rect)
+			&"hq":
+				_draw_hq(rect)
+	var selected_def: BuildingDef = town.building_def(town.buildings.get(selected_cell, &""))
+	if selected_def != null:
+		var highlight := Rect2(
+			_origin + Vector2(selected_cell) * _cell_px, Vector2(selected_def.footprint) * _cell_px)
 		var inset := maxf(1.0, _cell_px * 0.08)
 		draw_rect(highlight.grow(-inset), Color("ffd75e"), false, maxf(1.5, _cell_px * 0.12))
 
@@ -100,9 +108,14 @@ func _draw_lumberyard(rect: Rect2) -> void:
 
 
 func _draw_hq(rect: Rect2) -> void:
+	# 大本营占地可以多于 1×1（E01.b）：按整个占地矩形画大院轮廓，字居中。
 	var f := _cell_px / 32.0
 	draw_rect(rect.grow(-3.0 * f), Color("5c6470"))
 	draw_rect(rect.grow(-7.0 * f), Color("434a54"))
-	if _cell_px >= 14.0:
+	if _cell_px >= 12.0 and rect.size.x >= _cell_px * 2.0 - 1.0:
+		var center := rect.get_center()
+		draw_string(ThemeDB.fallback_font, center + Vector2(-8.0, 6.0) * f, "营",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, int(16.0 * f), Color("ffd75e"))
+	elif _cell_px >= 14.0:
 		draw_string(ThemeDB.fallback_font, rect.position + Vector2(9.0, 21.0) * f, "营",
 			HORIZONTAL_ALIGNMENT_LEFT, -1, int(16.0 * f), Color("ffd75e"))
