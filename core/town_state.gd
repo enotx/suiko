@@ -8,7 +8,8 @@ const STARTING_WOOD: int = 100
 const INVALID_CELL: Vector2i = Vector2i(-1, -1)
 const WORKER_NAME: String = "阮小二"
 const PROGRESS_UNIT: float = 1.0
-const SAVE_FORMAT_VERSION: int = 4
+const SAVE_FORMAT_VERSION: int = 5
+const SAVE_FORMAT_VERSION_V4: int = 4
 const SAVE_FORMAT_VERSION_V3: int = 3
 const SAVE_FORMAT_VERSION_V2: int = 2
 const SAVE_FORMAT_VERSION_V1: int = 1
@@ -62,6 +63,7 @@ const BUILDING_DEFS: Dictionary = {
 	&"farm": preload("res://defs/farm.tres"),
 	&"lumberyard": preload("res://defs/lumberyard.tres"),
 	&"hq": preload("res://defs/hq.tres"),
+	&"house": preload("res://defs/house.tres"),
 }
 
 var wood: int = STARTING_WOOD
@@ -79,6 +81,15 @@ var hq_cell: Vector2i = LEGACY_HQ_CELL
 var worker_cell: Vector2i = INVALID_CELL
 # 每块有产出建筑各自的生产进度（0..PROGRESS_UNIT），调岗保留在建筑上、不跟人走。
 var farm_progress: Dictionary = {}
+# 人口（E02）：住在民居里的居民，尚未参与工作（岗位自动填岗属 E03）。
+# 迁入与耗粮速率是临时数值，用户验收可调；粮尽即停止迁入（软失败，不饿死人）。
+var population: int = 0
+var move_in_progress: float = 0.0
+var food_buffer: float = 0.0
+
+# 人口速率占位值（E02）：每 5 秒迁入 1 人，每人每秒耗 0.1 粮。
+const MOVE_IN_SECONDS: float = 5.0
+const FOOD_PER_PERSON: float = 0.1
 
 
 func _init() -> void:
@@ -111,6 +122,8 @@ static func validate_defs() -> Array[String]:
 			problems.append("可建造建筑 %s 的造价必须大于 0" % id)
 		if def.footprint.x < 1 or def.footprint.y < 1:
 			problems.append("建筑 %s 的占地必须至少 1×1" % id)
+		if def.capacity < 0:
+			problems.append("建筑 %s 的住房容量不能为负" % id)
 	return problems
 
 
@@ -250,6 +263,51 @@ func advance_time(delta: float) -> void:
 			elif def.produces == &"wood":
 				wood += 1
 		farm_progress[cell] = progress
+	_advance_population(delta)
+
+
+func population_cap() -> int:
+	# 人口上限 = 全部建筑住房容量之和（当前只有民居提供）。
+	var cap: int = 0
+	for kind: StringName in buildings.values():
+		var def := building_def(kind)
+		if def != null:
+			cap += def.capacity
+	return cap
+
+
+func _advance_population(delta: float) -> void:
+	# 按迁入事件切片推进：与逐帧推进在相同总时长下得到相同结果（ECONOMY 一致性要求）。
+	# 粮尽的软失败（E02 临时规则）：停止迁入、人口不减少，把剩余粮食吃光为止。
+	var remaining: float = delta
+	while remaining > 0.0:
+		var cap := population_cap()
+		var has_grain: bool = grain > 0
+		var can_move_in: bool = population < cap and has_grain
+		var segment: float = remaining
+		if can_move_in:
+			segment = minf(segment, (1.0 - move_in_progress) * MOVE_IN_SECONDS)
+		if population > 0 and has_grain:
+			var consumption: float = population * FOOD_PER_PERSON * segment
+			if consumption <= float(grain):
+				food_buffer += consumption
+				var eaten := int(food_buffer)
+				if eaten > 0:
+					food_buffer -= eaten
+					grain -= eaten
+			else:
+				# 剩余粮食撑不完这一段：吃光后人口活动停止。
+				grain = 0
+				segment = remaining
+				remaining = 0.0
+		if can_move_in and remaining > 0.0:
+			move_in_progress += segment / MOVE_IN_SECONDS
+			if move_in_progress >= 1.0 - 0.0000001:
+				move_in_progress = 0.0
+				population += 1
+		elif not can_move_in:
+			move_in_progress = 0.0
+		remaining -= segment
 
 
 func worker_is_at(cell: Vector2i) -> bool:
@@ -292,6 +350,9 @@ func to_save_data() -> Dictionary:
 		"map_name": map_name,
 		"wood": wood,
 		"grain": grain,
+		"population": population,
+		"move_in_progress": move_in_progress,
+		"food_buffer": food_buffer,
 		"worker_x": worker_cell.x if worker_cell != INVALID_CELL else -1,
 		"worker_y": worker_cell.y if worker_cell != INVALID_CELL else -1,
 		"buildings": buildings_data,
@@ -379,18 +440,27 @@ func apply_save_data(data: Variant) -> String:
 		data["buildings"] = entries
 		data["terrain"] = _legacy_terrain_data()
 		data["map_size"] = [LEGACY_MAP_SIZE.x, LEGACY_MAP_SIZE.y]
-		data["version"] = SAVE_FORMAT_VERSION
+		version = SAVE_FORMAT_VERSION_V4
+		data["version"] = SAVE_FORMAT_VERSION_V4
 	elif version == SAVE_FORMAT_VERSION_V2:
 		# v2 → v4：补旧默认地形与尺寸（旧档没有地形/尺寸概念）。
 		data["terrain"] = _legacy_terrain_data()
 		data["map_size"] = [LEGACY_MAP_SIZE.x, LEGACY_MAP_SIZE.y]
-		data["version"] = SAVE_FORMAT_VERSION
+		version = SAVE_FORMAT_VERSION_V4
+		data["version"] = SAVE_FORMAT_VERSION_V4
 	elif version == SAVE_FORMAT_VERSION_V3:
 		# v3 → v4：v3 阶段地图固定 16×12，地形已随档。
 		data["map_size"] = [LEGACY_MAP_SIZE.x, LEGACY_MAP_SIZE.y]
-		data["version"] = SAVE_FORMAT_VERSION
-	elif version != SAVE_FORMAT_VERSION:
+		version = SAVE_FORMAT_VERSION_V4
+		data["version"] = SAVE_FORMAT_VERSION_V4
+	elif version != SAVE_FORMAT_VERSION_V4 and version != SAVE_FORMAT_VERSION:
 		return "存档版本不兼容。"
+	if version == SAVE_FORMAT_VERSION_V4:
+		# v4 → v5：补人口字段（旧档还没有人口概念，迁移后从零开始）。
+		data["population"] = 0
+		data["move_in_progress"] = 0.0
+		data["food_buffer"] = 0.0
+		data["version"] = SAVE_FORMAT_VERSION
 	var size_result := _parse_map_size(data.get("map_size"))
 	if size_result.has("error"):
 		return size_result["error"]
@@ -441,6 +511,12 @@ func apply_save_data(data: Variant) -> String:
 	var loaded_worker := Vector2i(int(data.get("worker_x", -99)), int(data.get("worker_y", -99)))
 	if loaded_worker != INVALID_CELL and not loaded_buildings.has(loaded_worker):
 		return "存档中的分工数据损坏。"
+	var loaded_population := int(data.get("population", -1))
+	var loaded_move_in := float(data.get("move_in_progress", -1.0))
+	var loaded_food_buffer := float(data.get("food_buffer", -1.0))
+	if loaded_population < 0 or loaded_population > loaded_buildings.size() * 1000 \
+			or loaded_move_in < 0.0 or loaded_move_in >= 1.0 or loaded_food_buffer < 0.0:
+		return "存档中的人口数据损坏。"
 	var loaded_name := "无名城镇"
 	if data.has("map_name"):
 		if typeof(data["map_name"]) != TYPE_STRING or str(data["map_name"]).is_empty():
@@ -451,6 +527,9 @@ func apply_save_data(data: Variant) -> String:
 	buildings = loaded_buildings
 	farm_progress = loaded_progress
 	worker_cell = loaded_worker
+	population = loaded_population
+	move_in_progress = loaded_move_in
+	food_buffer = loaded_food_buffer
 	terrain = parsed_terrain
 	map_size = size
 	map_name = loaded_name
@@ -594,6 +673,9 @@ func reset() -> void:
 	wood = STARTING_WOOD
 	grain = 0
 	worker_cell = INVALID_CELL
+	population = 0
+	move_in_progress = 0.0
+	food_buffer = 0.0
 	_reset_preset()
 
 

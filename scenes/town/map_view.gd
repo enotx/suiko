@@ -75,6 +75,8 @@ func _draw() -> void:
 				_draw_farm(rect)
 			&"lumberyard":
 				_draw_lumberyard(rect)
+			&"house":
+				_draw_house(rect)
 			&"hq":
 				_draw_hq(rect)
 	var selected_def: BuildingDef = town.building_def(town.buildings.get(selected_cell, &""))
@@ -105,6 +107,16 @@ func _draw_lumberyard(rect: Rect2) -> void:
 		draw_rect(Rect2(start, Vector2(16.0, 4.0) * f), Color("c99a5b"))
 		draw_line(start + Vector2(0.0, 2.0) * f, start + Vector2(16.0, 2.0) * f,
 			Color("6d5027"), 1.0 * f)
+
+
+func _draw_house(rect: Rect2) -> void:
+	# 民居（E02）：暖色墙体 + 深色屋顶带，格够大时画"居"字。
+	var f := _cell_px / 32.0
+	draw_rect(rect.grow(-4.0 * f), Color("c8a06a"))
+	draw_rect(Rect2(rect.position + Vector2(4.0, 8.0) * f, Vector2(24.0, 8.0) * f), Color("8a5a3c"))
+	if _cell_px >= 14.0:
+		draw_string(ThemeDB.fallback_font, rect.position + Vector2(9.0, 21.0) * f, "居",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, int(16.0 * f), Color("5a3a20"))
 
 
 func _draw_hq(rect: Rect2) -> void:

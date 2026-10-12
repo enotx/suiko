@@ -11,6 +11,7 @@ var selected_cell: Vector2i = TownState.INVALID_CELL
 var paused: bool = false
 var _last_shown_grain: int = -1
 var _last_shown_wood: int = -1
+var _last_shown_population: int = -1
 # 左键拖动平移 vs 点击选中：按下先记为“待定点击”，位移超过阈值才算拖拽；
 # 松手时没超过阈值就当作一次普通点击。阈值放宽可减少触摸板的误拖拽。
 const DRAG_THRESHOLD_PX: float = 8.0
@@ -37,6 +38,7 @@ var _left_press_position: Vector2 = Vector2.ZERO
 @onready var load_button: Button = $UI/LoadButton
 @onready var build_farm_button: Button = $UI/BuildFarmButton
 @onready var build_lumberyard_button: Button = $UI/BuildLumberyardButton
+@onready var build_house_button: Button = $UI/BuildHouseButton
 
 
 func _ready() -> void:
@@ -54,10 +56,13 @@ func _ready() -> void:
 	load_button.pressed.connect(_load_town)
 	build_farm_button.pressed.connect(_on_build_pressed.bind(&"farm"))
 	build_lumberyard_button.pressed.connect(_on_build_pressed.bind(&"lumberyard"))
+	build_house_button.pressed.connect(_on_build_pressed.bind(&"house"))
 	var farm_def: BuildingDef = TownState.building_def(&"farm")
 	var lumber_def: BuildingDef = TownState.building_def(&"lumberyard")
 	build_farm_button.text = "建%s（%d木）" % [farm_def.display_name, farm_def.wood_cost]
 	build_lumberyard_button.text = "建%s（%d木）" % [lumber_def.display_name, lumber_def.wood_cost]
+	var house_def: BuildingDef = TownState.building_def(&"house")
+	build_house_button.text = "建%s（%d木）" % [house_def.display_name, house_def.wood_cost]
 	$UI/Instructions.text = "蓝=水泊 灰绿=草地 黄绿=高地 深绿/灰/棕=林地/石料/铁砂（暂不可建）。\n3D：滚轮缩放，按住左键拖动平移（轻点即选中），右键同样平移；点空地选中后建造，伐木场产木、农田产粮。"
 	_apply_view()
 	_select_cell(TownState.INVALID_CELL)
@@ -177,9 +182,10 @@ func _refresh_selection_panel() -> void:
 		var worker_text: String = TownState.WORKER_NAME if town.worker_is_at(selected_cell) else "无"
 		var progress_text: String = "产出进度：%d%%" % int(town.farm_progress_ratio(selected_cell) * 100.0) \
 			if def.produces != &"" else "不产出"
-		selection_label.text = "选中：%s\n位置：(%d, %d)　占地：%d×%d\n工作者：%s\n%s" % [
-			def.display_name, selected_cell.x, selected_cell.y,
-			def.footprint.x, def.footprint.y, worker_text, progress_text
+		var housing_text: String = "容纳：%d 人" % def.capacity if def.capacity > 0 else "工作者：%s" % worker_text
+		selection_label.text = "选中：%s（占地 %d×%d）\n位置：(%d, %d)\n%s\n%s" % [
+			def.display_name, def.footprint.x, def.footprint.y,
+			selected_cell.x, selected_cell.y, housing_text, progress_text
 		]
 	elif _is_buildable_cell(selected_cell):
 		selection_label.text = "空地 (%d, %d)\n阮小二：%s\n在下方选择要建造的建筑；多格建筑从锚点向右下扩展。" % [
@@ -212,10 +218,13 @@ func _update_action_buttons() -> void:
 	withdraw_button.disabled = town.worker_cell == TownState.INVALID_CELL
 	build_farm_button.visible = not building_selected
 	build_lumberyard_button.visible = not building_selected
+	build_house_button.visible = not building_selected
 	build_farm_button.disabled = not town.can_build_at(selected_cell, &"farm") \
 		or town.wood < TownState.building_def(&"farm").wood_cost
 	build_lumberyard_button.disabled = not town.can_build_at(selected_cell, &"lumberyard") \
 		or town.wood < TownState.building_def(&"lumberyard").wood_cost
+	build_house_button.disabled = not town.can_build_at(selected_cell, &"house") \
+		or town.wood < TownState.building_def(&"house").wood_cost
 
 
 func _on_assign_pressed() -> void:
@@ -284,9 +293,11 @@ func _process(delta: float) -> void:
 	if paused:
 		return
 	town.advance_time(delta)
-	if town.grain != _last_shown_grain or town.wood != _last_shown_wood:
+	if town.grain != _last_shown_grain or town.wood != _last_shown_wood \
+			or town.population != _last_shown_population:
 		_last_shown_grain = town.grain
 		_last_shown_wood = town.wood
+		_last_shown_population = town.population
 		_update_resources()
 		_refresh_selection_panel()
 		_update_action_buttons()
@@ -326,8 +337,8 @@ func _update_resources() -> void:
 	for kind: StringName in town.buildings.values():
 		if kind == &"farm":
 			farm_count += 1
-	resources_label.text = "木材：%d    粮食：%d    农田：%d    大本营：%s" % [
-		town.wood, town.grain, farm_count,
+	resources_label.text = "木材：%d    粮食：%d    人口：%d/%d    农田：%d    大本营：%s" % [
+		town.wood, town.grain, town.population, town.population_cap(), farm_count,
 		"已建立" if town.buildings.values().has(&"hq") else "无"
 	]
 

@@ -324,7 +324,7 @@ func _run() -> void:
     # P07：大本营不可建第二座、不需要工人；点击任意覆盖格都选中锚点；伐木场产木材。
     await click_map(town.hq_cell)
     check(main.selection_label.text.contains("大本营")
-        and main.selection_label.text.contains("占地：2×2"),
+        and main.selection_label.text.contains("占地 2×2"),
         "HQ panel shows footprint")
     check(main.assign_button.disabled, "Assign disabled on HQ")
     check(main.town.assign_worker(town.hq_cell).contains("不需要工人"), "HQ refuses workers")
@@ -352,6 +352,25 @@ func _run() -> void:
     mill_ok.advance_time(1.0)
     check(mill_ok.wood == wood_before + 3, "Idle lumberyard yields one wood per second")
 
+    # E02：人口与民居——迁入、上限、耗粮与粮尽软失败（独立实例，避免帧时序干扰）。
+    var pop_town := TownState.new()
+    check(pop_town.population_cap() == 0 and pop_town.population == 0,
+        "No housing keeps population at zero")
+    check(pop_town.try_build(Vector2i(4, 4), &"house").contains("已")
+        and pop_town.population_cap() == 5, "House provides housing capacity")
+    pop_town.grain = 50
+    pop_town.advance_time(25.0)
+    check(pop_town.population == 5 and pop_town.grain == 45,
+        "Population moves in one per five seconds and eats on the way")
+    pop_town.advance_time(30.0)
+    check(pop_town.population == 5, "Move-in stops at the cap")
+    var fed_grain: int = pop_town.grain
+    pop_town.advance_time(2.0)
+    check(pop_town.grain == fed_grain - 1, "Five residents eat 0.5 grain per second")
+    pop_town.grain = 0
+    pop_town.advance_time(10.0)
+    check(pop_town.population == 5, "Out of grain stops move-in but starves nobody")
+
     # P08：高地上建造——建筑基准抬升到地形高度，且可被拾取；高格选中高亮可见。
     await click_build(Vector2i(45, 10), main.build_farm_button)
     check(main.town.buildings.get(Vector2i(45, 10), &"") == &"farm", "Highland accepts farms (D18)")
@@ -370,12 +389,21 @@ func _run() -> void:
         "Selection mark sits on the highland surface")
     check(main.town.wood == 70, "Highland farm costs the same 10 wood")
 
+    # E02 GUI：民居建造与人口 HUD。
+    await click_map(Vector2i(36, 50))
+    check(main.build_house_button.visible and not main.build_house_button.disabled,
+        "House button shows on affordable empty land")
+    await click_at(main.build_house_button.get_global_rect().get_center())
+    check(main.town.buildings.get(Vector2i(36, 50), &"") == &"house", "House can be built")
+    check(main.town.wood == 40, "House costs 30 wood")
+    check(main.resources_label.text.contains("人口：0/5"), "HUD shows population and cap")
+
     # P04/P05：实时产粮与存档数值——用独立规则实例验证，避免运行帧时序影响断言。
     var saver := TownState.new()
     saver.try_build(Vector2i(4, 4), &"farm")
     saver.advance_time(0.5)
     var save_data: Dictionary = saver.to_save_data()
-    check(save_data["version"] == 4 and save_data["map_size"] == [60, 60]
+    check(save_data["version"] == 5 and save_data["map_size"] == [60, 60]
         and save_data["map_name"] == "测试城镇", "Save v4 records map size and name")
     var loader := TownState.new()
     loader.try_build(Vector2i(5, 5), &"farm")
@@ -444,6 +472,7 @@ func _run() -> void:
         "Migration plants legacy HQ and keeps worker")
     check(migrated.map_size == Vector2i(16, 12) and migrated.terrain_height(Vector2i(13, 2)) == 0.5
         and migrated.is_water(Vector2i(1, 1)), "V1 migration gains legacy terrain")
+    check(migrated.population == 0, "V1 migration starts without population")
     var v2_data := {"version": 2, "wood": 30, "grain": 1, "worker_x": -1, "worker_y": -1,
         "buildings": [{"x": 6, "y": 6, "kind": "lumberyard", "progress": 0.1},
             {"x": 8, "y": 5, "kind": "hq", "progress": 0.0}]}
@@ -498,7 +527,8 @@ func _run() -> void:
     check(main.town.wood == saved_wood, "Load wood %d vs saved %d" % [main.town.wood, saved_wood])
     check(main.town.grain == saved_grain, "Load grain %d vs saved %d" % [main.town.grain, saved_grain])
     check(main.town.worker_cell == Vector2i(28, 53), "Load worker %s" % main.town.worker_cell)
-    check(main.town.buildings.size() == 4, "Load buildings 4 (HQ, lumberyard and two farms)")
+    check(main.town.buildings.size() == 5,
+        "Load buildings 5 (HQ, lumberyard, highland farm, house and saved farm)")
     check(main.town.terrain_height(Vector2i(45, 10)) == 0.5, "Load restores highland terrain")
     check(main.town.map_size == Vector2i(60, 60), "Load keeps the 60x60 map")
     check(main.map_3d.terrain.get_child_count() == terrain_children,

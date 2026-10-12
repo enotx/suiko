@@ -225,6 +225,8 @@ func refresh() -> void:
 				_build_farm(cell)
 			&"lumberyard":
 				_build_lumberyard(cell)
+			&"house":
+				_build_house(cell)
 			&"hq":
 				_build_hq(cell)
 	_update_selection_mark()
@@ -261,6 +263,18 @@ func _build_lumberyard(cell: Vector2i) -> void:
 	_box(buildings_root, origin + Vector3(0.38, 0.21, 0.5), Vector3(0.6, 0.14, 0.22), log_mat, cell)
 	_box(buildings_root, origin + Vector3(0.78, 0.16, 0.28), Vector3(0.08, 0.32, 0.08), post, cell)
 	_box(buildings_root, origin + Vector3(0.78, 0.16, 0.72), Vector3(0.08, 0.32, 0.08), post, cell)
+
+
+func _build_house(cell: Vector2i) -> void:
+	# 民居（E02）：小屋+坡屋顶，高度压在 0.45 内，不遮挡邻格射线。
+	var origin := Vector3(cell.x, town.terrain_height(cell), cell.y)
+	var wall := _material(Color("c8a06a"))
+	var roof := _material(Color("8a5a3c"))
+	var door := _material(Color("6d4a30"))
+	_box(buildings_root, origin + Vector3(0.5, 0.14, 0.5), Vector3(0.66, 0.28, 0.66), wall, cell)
+	_box(buildings_root, origin + Vector3(0.5, 0.31, 0.5), Vector3(0.8, 0.06, 0.8), roof, cell)
+	_box(buildings_root, origin + Vector3(0.5, 0.39, 0.5), Vector3(0.52, 0.1, 0.52), roof, cell)
+	_box(buildings_root, origin + Vector3(0.5, 0.1, 0.85), Vector3(0.16, 0.2, 0.05), door, cell)
 
 
 func _build_hq(cell: Vector2i) -> void:

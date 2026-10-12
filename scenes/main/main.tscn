@@ -59,9 +59,9 @@ offset_bottom = 108.0
 
 [node name="Instructions" type="Label" parent="UI" unique_id=408713511]
 offset_left = 595.0
-offset_top = 362.0
+offset_top = 436.0
 offset_right = 930.0
-offset_bottom = 398.0
+offset_bottom = 472.0
 text = "蓝=水泊；绿=平地；黄绿=高地（可建造）；点空地选中后建。
 大本营是核心，伐木场产木、农田产粮；选中建筑可分配阮小二。"
 
@@ -89,29 +89,36 @@ text = "撤回阮小二"
 [node name="BuildFarmButton" type="Button" parent="UI"]
 offset_left = 595.0
 offset_top = 276.0
-offset_right = 752.0
+offset_right = 930.0
 offset_bottom = 312.0
 text = "建农田（10木）"
 
 [node name="BuildLumberyardButton" type="Button" parent="UI"]
-offset_left = 760.0
-offset_top = 276.0
+offset_left = 595.0
+offset_top = 316.0
 offset_right = 930.0
-offset_bottom = 312.0
+offset_bottom = 352.0
 text = "建伐木场（20木）"
+
+[node name="BuildHouseButton" type="Button" parent="UI"]
+offset_left = 595.0
+offset_top = 356.0
+offset_right = 930.0
+offset_bottom = 392.0
+text = "建民居（30木）"
 
 [node name="DeselectButton" type="Button" parent="UI"]
 offset_left = 595.0
-offset_top = 320.0
+offset_top = 396.0
 offset_right = 752.0
-offset_bottom = 356.0
+offset_bottom = 432.0
 text = "取消选择"
 
 [node name="ResetButton" type="Button" parent="UI" unique_id=817386219]
 offset_left = 760.0
-offset_top = 320.0
+offset_top = 396.0
 offset_right = 930.0
-offset_bottom = 356.0
+offset_bottom = 432.0
 text = "重置城镇"
 
 [node name="Footer" type="Label" parent="UI" unique_id=423037683]
@@ -130,28 +137,28 @@ theme_override_font_sizes/font_size = 21
 
 [node name="ViewButton" type="Button" parent="UI" unique_id=441771894]
 offset_left = 595.0
-offset_top = 400.0
+offset_top = 476.0
 offset_right = 752.0
-offset_bottom = 444.0
+offset_bottom = 512.0
 text = "切换到 2D"
 
 [node name="PauseButton" type="Button" parent="UI"]
 offset_left = 760.0
-offset_top = 400.0
+offset_top = 476.0
 offset_right = 930.0
-offset_bottom = 444.0
+offset_bottom = 512.0
 text = "暂停经营"
 
 [node name="SaveButton" type="Button" parent="UI"]
 offset_left = 595.0
-offset_top = 456.0
+offset_top = 516.0
 offset_right = 752.0
-offset_bottom = 500.0
+offset_bottom = 544.0
 text = "保存城镇"
 
 [node name="LoadButton" type="Button" parent="UI"]
 offset_left = 760.0
-offset_top = 456.0
+offset_top = 516.0
 offset_right = 930.0
-offset_bottom = 500.0
+offset_bottom = 544.0
 text = "读取存档"
