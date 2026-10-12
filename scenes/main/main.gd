@@ -52,36 +52,75 @@ func _ready() -> void:
 	var lumber_def: BuildingDef = TownState.building_def(&"lumberyard")
 	build_farm_button.text = "建%s（%d木）" % [farm_def.display_name, farm_def.wood_cost]
 	build_lumberyard_button.text = "建%s（%d木）" % [lumber_def.display_name, lumber_def.wood_cost]
-	$UI/Instructions.text = "蓝=水泊；绿=平地；黄绿=高地（可建造）；点空地选中后建。\n大本营是核心，伐木场产木、农田产粮；选中建筑可分配阮小二。"
+	$UI/Instructions.text = "蓝=水泊 灰绿=草地 黄绿=高地 深绿/灰/棕=林地/石料/铁砂（暂不可建）。\n3D：滚轮缩放、右键拖动平移；点空地选中后建造，伐木场产木、农田产粮。"
 	_apply_view()
 	_select_cell(TownState.INVALID_CELL)
 	_refresh_ui("先选一块空地，建一座伐木场，木材就不再是死水。")
 
 
 func _on_map_input(event: InputEvent) -> void:
+	if showing_3d and _handle_camera_input(event):
+		map_area.accept_event()
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		var cell: Vector2i
+		if showing_3d:
+			cell = map_3d.cell_at_position(event.position)
+		else:
+			cell = map_2d.cell_at_position(event.position)
+		var message: String
+		if town.buildings.has(cell):
+			message = "已选中 %s (%d, %d)。" % [town.building_name(cell), cell.x, cell.y]
+			_select_cell(cell)
+		elif not town.is_inside(cell):
+			message = "请在地图范围内操作。"
+		elif town.is_water(cell):
+			message = "水面不能建造。"
+		elif town.is_resource(cell):
+			message = "%s资源区块暂时不能建造，采集玩法接入后开放。" % _resource_name(cell)
+		else:
+			# D16：点空地只是选中，建造由右侧按钮决定建筑种类。
+			message = "已选择空地 (%d, %d)；在右侧选择要建造的建筑。" % [cell.x, cell.y]
+			_select_cell(cell)
+		map_2d.refresh()
+		map_3d.refresh()
+		_refresh_ui(message)
+		map_area.accept_event()
+
+
+func _handle_camera_input(event: InputEvent) -> bool:
+	# 3D 视图的相机控制：滚轮缩放，右键/中键按住拖动平移。2D 整图缩放显示，不需要相机。
 	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-			var cell: Vector2i
-			if showing_3d:
-				cell = map_3d.cell_at_position(event.position)
-			else:
-				cell = map_2d.cell_at_position(event.position)
-			var message: String
-			if town.buildings.has(cell):
-				message = "已选中 %s (%d, %d)。" % [town.building_name(cell), cell.x, cell.y]
-				_select_cell(cell)
-			elif not town.is_inside(cell):
-				message = "请在地图范围内操作。"
-			elif town.is_water(cell):
-				message = "水面不能建造。"
-			else:
-				# D16：点空地只是选中，建造由右侧按钮决定建筑种类。
-				message = "已选择空地 (%d, %d)；在右侧选择要建造的建筑。" % [cell.x, cell.y]
-				_select_cell(cell)
-			map_2d.refresh()
-			map_3d.refresh()
-			_refresh_ui(message)
-			map_area.accept_event()
+		match event.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				if event.pressed:
+					map_3d.zoom_step(1.0)
+					return true
+			MOUSE_BUTTON_WHEEL_DOWN:
+				if event.pressed:
+					map_3d.zoom_step(-1.0)
+					return true
+			MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE:
+				if event.pressed:
+					map_3d.begin_pan()
+				else:
+					map_3d.end_pan()
+				return true
+	elif event is InputEventMouseMotion:
+		map_3d.pan_by(event.relative)
+		return map_3d.is_panning()
+	return false
+
+
+func _resource_name(cell: Vector2i) -> String:
+	match town.terrain_kind(cell):
+		&"forest":
+			return "林地"
+		&"stone":
+			return "石料"
+		&"iron":
+			return "铁砂"
+	return ""
 
 
 func _select_cell(cell: Vector2i) -> void:
@@ -114,7 +153,7 @@ func _refresh_selection_panel() -> void:
 
 
 func _is_buildable_cell(cell: Vector2i) -> bool:
-	return town.is_inside(cell) and not town.is_water(cell) and not town.buildings.has(cell)
+	return town.can_build_on(cell)
 
 
 func _worker_summary() -> String:
@@ -196,9 +235,10 @@ func _load_town() -> void:
 	if result != "":
 		_refresh_ui("%s 当前经营未受影响。" % result)
 		return
-	# 旧选中格可能不再有效：读取后清除选择并重建显示与按钮状态。
+	# 存档可能来自不同地图（如旧 16×12 存档）：重建地形显示，清除旧选择。
+	map_3d.rebuild_all()
 	_select_cell(TownState.INVALID_CELL)
-	_refresh_ui("已读取存档；建筑、分工和生产进度已恢复。")
+	_refresh_ui("已读取存档「%s」；建筑、分工和生产进度已恢复。" % town.map_name)
 
 
 func _process(delta: float) -> void:
@@ -237,9 +277,10 @@ func _apply_view() -> void:
 
 func _reset_town() -> void:
 	town.reset()
-	# 重置必须清除选择，面板不能再引用已被清空的建筑格。
+	# 重置会恢复默认地图：地形重建，选择清空，面板不再引用旧建筑格。
+	map_3d.rebuild_all()
 	_select_cell(TownState.INVALID_CELL)
-	_refresh_ui("已重置城镇；两个视图同步恢复。")
+	_refresh_ui("已重置城镇「%s」；两个视图同步恢复。" % town.map_name)
 
 
 func _update_resources() -> void:
