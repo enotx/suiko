@@ -344,13 +344,13 @@ func _run() -> void:
     check(main.town.wood == 80, "Lumberyard costs 20 wood")
     var mill_ok := TownState.new()
     mill_ok.try_build(Vector2i(4, 4), &"lumberyard")
+    var idle_before: int = mill_ok.wood
+    mill_ok.advance_time(1.0)
+    check(mill_ok.wood == idle_before, "Unstaffed lumberyard yields nothing (D30)")
     mill_ok.assign_worker(Vector2i(4, 4))
     var wood_before: int = mill_ok.wood
     mill_ok.advance_time(1.0)
-    check(mill_ok.wood == wood_before + 2, "Worked lumberyard yields two wood per second")
-    mill_ok.withdraw_worker()
-    mill_ok.advance_time(1.0)
-    check(mill_ok.wood == wood_before + 3, "Idle lumberyard yields one wood per second")
+    check(mill_ok.wood == wood_before + 1, "One staffed slot yields one wood per second")
 
     # E02：人口与民居——迁入、上限、耗粮与粮尽软失败（独立实例，避免帧时序干扰）。
     var pop_town := TownState.new()
@@ -393,7 +393,7 @@ func _run() -> void:
     job_town.grain = 0
     var job_wood: int = job_town.wood
     job_town.advance_time(2.0)
-    check(job_town.wood == job_wood + 6, "Fully staffed lumberyard yields three wood per second")
+    check(job_town.wood == job_wood + 4, "Fully staffed lumberyard yields two wood per second")
 
     # 阮小二占一个岗位位：他在时居民只能补另一岗；他撤走居民顶上（D21 兼容桥）。
     var ruan_town := TownState.new()
@@ -407,13 +407,13 @@ func _run() -> void:
         "Ruan and the resident share the two farm slots")
     var ruan_grain: int = ruan_town.grain
     ruan_town.advance_time(2.0)
-    check(ruan_town.grain == ruan_grain + 6, "Ruan plus resident make the farm yield three per second")
+    check(ruan_town.grain == ruan_grain + 4, "Ruan plus resident make the farm yield two per second")
     ruan_town.withdraw_worker()
     check(ruan_town.building_jobs_filled(Vector2i(4, 4)) == 1,
         "Resident keeps his slot but the empty slot stays open")
     ruan_grain = ruan_town.grain
     ruan_town.advance_time(2.0)
-    check(ruan_town.grain == ruan_grain + 4, "Rate drops back to two per second")
+    check(ruan_town.grain == ruan_grain + 2, "Rate drops back to one per second")
 
     # P08：高地上建造——建筑基准抬升到地形高度，且可被拾取；高格选中高亮可见。
     await click_build(Vector2i(45, 10), main.build_farm_button)
@@ -445,6 +445,7 @@ func _run() -> void:
     # P04/P05：实时产粮与存档数值——用独立规则实例验证，避免运行帧时序影响断言。
     var saver := TownState.new()
     saver.try_build(Vector2i(4, 4), &"farm")
+    saver.assign_worker(Vector2i(4, 4))
     saver.advance_time(0.5)
     var save_data: Dictionary = saver.to_save_data()
     check(save_data["version"] == 6 and save_data["map_size"] == [60, 60]
@@ -453,7 +454,7 @@ func _run() -> void:
     loader.try_build(Vector2i(5, 5), &"farm")
     check(loader.apply_save_data(save_data) == "", "Valid save applies cleanly")
     check(loader.wood == saver.wood and loader.grain == saver.grain
-        and loader.worker_cell == TownState.INVALID_CELL and loader.buildings.size() == 2
+        and loader.worker_cell == Vector2i(4, 4) and loader.buildings.size() == 2
         and is_equal_approx(loader.farm_progress_ratio(Vector2i(4, 4)), 0.5),
         "Save round-trip restores resources, worker, farm and progress")
     check(loader.map_size == Vector2i(60, 60) and loader.map_name == "测试城镇"

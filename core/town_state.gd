@@ -364,9 +364,14 @@ func cycle_job_priority() -> String:
 
 func cycle_job_cap(category: StringName) -> String:
 	# 每类居民上限按档位循环：不限 → 2 → 4 → 6 → 8 → 不限。
+	var before := staffed_population()
 	var index: int = JOB_CAP_STEPS.find(job_caps.get(category, 0))
 	job_caps[category] = JOB_CAP_STEPS[(index + 1) % JOB_CAP_STEPS.size()]
-	return "%s岗位居民上限已调整为 %s。" % [_category_display(category), _cap_display(job_caps[category])]
+	var moved: int = before - staffed_population()
+	var effect: String = "，%d 名居民转为闲人。" % moved if moved > 0 else "。"
+	return "%s岗位居民上限已调整为 %s%s" % [
+		_category_display(category), _cap_display(job_caps[category]), effect,
+	]
 
 
 func _category_display(category: StringName) -> String:
