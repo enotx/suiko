@@ -88,35 +88,34 @@ func _draw() -> void:
 
 
 func _draw_farm(rect: Rect2) -> void:
-	var f := _cell_px / 32.0
-	draw_rect(rect.grow(-6.0 * f), Color("d7b36a"))
-	if _cell_px < 10.0:
-		return
+	# 农田（2×2）：田块 + 三条垄线，按占地比例绘制。
+	draw_rect(rect.grow(-2.0), Color("d7b36a"))
 	for row in range(3):
-		var start := rect.position + Vector2(9.0, 10.0 + row * 6.0) * f
-		draw_line(start, start + Vector2(14.0, 0.0) * f, Color("896441"), 2.0 * f)
+		var y := rect.position.y + rect.size.y * (0.18 + 0.28 * row)
+		draw_line(Vector2(rect.position.x + 3.0, y),
+			Vector2(rect.end.x - 3.0, y), Color("896441"), 2.0)
 
 
 func _draw_lumberyard(rect: Rect2) -> void:
-	var f := _cell_px / 32.0
-	draw_rect(rect.grow(-6.0 * f), Color("8a6a3f"))
-	if _cell_px < 10.0:
-		return
-	for row in range(3):
-		var start := rect.position + Vector2(8.0, 12.0 + row * 7.0) * f
-		draw_rect(Rect2(start, Vector2(16.0, 4.0) * f), Color("c99a5b"))
-		draw_line(start + Vector2(0.0, 2.0) * f, start + Vector2(16.0, 2.0) * f,
-			Color("6d5027"), 1.0 * f)
+	# 伐木场（2×2）：底色 + 两段料堆色块。
+	draw_rect(rect.grow(-2.0), Color("8a6a3f"))
+	draw_rect(Rect2(rect.position + rect.size * Vector2(0.15, 0.15),
+		rect.size * Vector2(0.45, 0.28)), Color("c99a5b"))
+	draw_rect(Rect2(rect.position + rect.size * Vector2(0.15, 0.55),
+		rect.size * Vector2(0.45, 0.28)), Color("7c5a2c"))
 
 
 func _draw_house(rect: Rect2) -> void:
-	# 民居（E02）：暖色墙体 + 深色屋顶带，格够大时画"居"字。
-	var f := _cell_px / 32.0
-	draw_rect(rect.grow(-4.0 * f), Color("c8a06a"))
-	draw_rect(Rect2(rect.position + Vector2(4.0, 8.0) * f, Vector2(24.0, 8.0) * f), Color("8a5a3c"))
-	if _cell_px >= 14.0:
-		draw_string(ThemeDB.fallback_font, rect.position + Vector2(9.0, 21.0) * f, "居",
-			HORIZONTAL_ALIGNMENT_LEFT, -1, int(16.0 * f), Color("5a3a20"))
+	# 民居（2×2）：暖色墙体 + 深色屋顶带，格够大时画"居"字。
+	draw_rect(rect.grow(-2.0), Color("c8a06a"))
+	draw_rect(Rect2(rect.position + rect.size * Vector2(0.1, 0.14),
+		rect.size * Vector2(0.8, 0.24)), Color("8a5a3c"))
+	if _cell_px >= 12.0:
+		var center := rect.get_center()
+		var glyph_size := int(_cell_px * 0.8)
+		draw_string(ThemeDB.fallback_font,
+			center + Vector2(-glyph_size * 0.35, glyph_size * 0.35), "居",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_size, Color("5a3a20"))
 
 
 func _draw_hq(rect: Rect2) -> void:

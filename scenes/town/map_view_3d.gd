@@ -237,44 +237,72 @@ func rebuild_all() -> void:
 	refresh()
 
 
+func _footprint_size(cell: Vector2i) -> Vector2:
+	var def := building_def_of(cell)
+	return Vector2(def.footprint) if def != null else Vector2.ONE
+
+
+func building_def_of(cell: Vector2i) -> BuildingDef:
+	return town.building_def(town.buildings.get(cell, &""))
+
+
 func _build_farm(cell: Vector2i) -> void:
-	# 建筑基准取自共享地形高度：高地上的建筑整体抬升，两视图一致。
+	# 农田（E03 反馈后 2×2）：整块田垄 + 三条作物带 + 角上小屋；高度不遮挡邻格射线。
 	var origin := Vector3(cell.x, town.terrain_height(cell), cell.y)
+	var size := _footprint_size(cell)
+	var center := Vector3(size.x * 0.5, 0.0, size.y * 0.5)
 	var earth := _material(Color("b99258"))
 	var crop := _material(Color("d9bb66"))
 	var wall := _material(Color("e4d2ac"))
 	var roof := _material(Color("985947"))
-	_box(buildings_root, origin + Vector3(0.5, 0.055, 0.5), Vector3(0.8, 0.11, 0.8), earth, cell)
+	_box(buildings_root, origin + center + Vector3(0.0, 0.055, 0.0),
+		Vector3(size.x - 0.06, 0.11, size.y - 0.06), earth, cell)
 	for row in range(3):
-		_box(buildings_root, origin + Vector3(0.39, 0.15, 0.28 + row * 0.22),
-			Vector3(0.42, 0.08, 0.065), crop, cell)
-	_box(buildings_root, origin + Vector3(0.73, 0.29, 0.68), Vector3(0.24, 0.36, 0.28), wall, cell)
-	_box(buildings_root, origin + Vector3(0.73, 0.51, 0.68), Vector3(0.32, 0.08, 0.36), roof, cell)
+		_box(buildings_root,
+			origin + center + Vector3((row - 1) * size.x * 0.24, 0.15, -size.y * 0.12),
+			Vector3(size.x * 0.16, 0.08, size.y * 0.5), crop, cell)
+	_box(buildings_root, origin + center + Vector3(size.x * 0.3, 0.25, size.y * 0.3),
+		Vector3(size.x * 0.24, 0.3, size.y * 0.24), wall, cell)
+	_box(buildings_root, origin + center + Vector3(size.x * 0.3, 0.44, size.y * 0.3),
+		Vector3(size.x * 0.3, 0.07, size.y * 0.3), roof, cell)
 
 
 func _build_lumberyard(cell: Vector2i) -> void:
+	# 伐木场（2×2）：两层料堆 + 两根立柱。
 	var origin := Vector3(cell.x, town.terrain_height(cell), cell.y)
+	var size := _footprint_size(cell)
+	var center := Vector3(size.x * 0.5, 0.0, size.y * 0.5)
 	var log_mat := _material(Color("a97e42"))
 	var log_dark := _material(Color("7c5a2c"))
 	var post := _material(Color("5f4520"))
-	# 底层两根横木 + 上层一根，旁边立两根柱子示意伐木场料堆。
-	_box(buildings_root, origin + Vector3(0.38, 0.07, 0.35), Vector3(0.6, 0.14, 0.22), log_mat, cell)
-	_box(buildings_root, origin + Vector3(0.38, 0.07, 0.65), Vector3(0.6, 0.14, 0.22), log_dark, cell)
-	_box(buildings_root, origin + Vector3(0.38, 0.21, 0.5), Vector3(0.6, 0.14, 0.22), log_mat, cell)
-	_box(buildings_root, origin + Vector3(0.78, 0.16, 0.28), Vector3(0.08, 0.32, 0.08), post, cell)
-	_box(buildings_root, origin + Vector3(0.78, 0.16, 0.72), Vector3(0.08, 0.32, 0.08), post, cell)
+	_box(buildings_root, origin + center + Vector3(-size.x * 0.12, 0.07, -size.y * 0.15),
+		Vector3(size.x * 0.42, 0.14, size.y * 0.2), log_mat, cell)
+	_box(buildings_root, origin + center + Vector3(-size.x * 0.12, 0.07, size.y * 0.15),
+		Vector3(size.x * 0.42, 0.14, size.y * 0.2), log_dark, cell)
+	_box(buildings_root, origin + center + Vector3(-size.x * 0.12, 0.21, 0.0),
+		Vector3(size.x * 0.42, 0.14, size.y * 0.2), log_mat, cell)
+	_box(buildings_root, origin + center + Vector3(size.x * 0.28, 0.16, -size.y * 0.2),
+		Vector3(0.08, 0.32, 0.08), post, cell)
+	_box(buildings_root, origin + center + Vector3(size.x * 0.28, 0.16, size.y * 0.2),
+		Vector3(0.08, 0.32, 0.08), post, cell)
 
 
 func _build_house(cell: Vector2i) -> void:
-	# 民居（E02）：小屋+坡屋顶，高度压在 0.45 内，不遮挡邻格射线。
+	# 民居（2×2）：墙体 + 双层坡屋顶 + 门，高度压在 0.45 内，不遮挡邻格射线。
 	var origin := Vector3(cell.x, town.terrain_height(cell), cell.y)
+	var size := _footprint_size(cell)
+	var center := Vector3(size.x * 0.5, 0.0, size.y * 0.5)
 	var wall := _material(Color("c8a06a"))
 	var roof := _material(Color("8a5a3c"))
 	var door := _material(Color("6d4a30"))
-	_box(buildings_root, origin + Vector3(0.5, 0.14, 0.5), Vector3(0.66, 0.28, 0.66), wall, cell)
-	_box(buildings_root, origin + Vector3(0.5, 0.31, 0.5), Vector3(0.8, 0.06, 0.8), roof, cell)
-	_box(buildings_root, origin + Vector3(0.5, 0.39, 0.5), Vector3(0.52, 0.1, 0.52), roof, cell)
-	_box(buildings_root, origin + Vector3(0.5, 0.1, 0.85), Vector3(0.16, 0.2, 0.05), door, cell)
+	_box(buildings_root, origin + center + Vector3(0.0, 0.14, 0.0),
+		Vector3(size.x - 0.3, 0.28, size.y - 0.3), wall, cell)
+	_box(buildings_root, origin + center + Vector3(0.0, 0.31, 0.0),
+		Vector3(size.x - 0.06, 0.06, size.y - 0.06), roof, cell)
+	_box(buildings_root, origin + center + Vector3(0.0, 0.39, 0.0),
+		Vector3(size.x * 0.55, 0.1, size.y * 0.55), roof, cell)
+	_box(buildings_root, origin + center + Vector3(0.0, 0.1, size.y * 0.5 - 0.02),
+		Vector3(0.16, 0.2, 0.05), door, cell)
 
 
 func _build_hq(cell: Vector2i) -> void:

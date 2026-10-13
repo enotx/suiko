@@ -91,6 +91,9 @@ var food_buffer: float = 0.0
 const MOVE_IN_SECONDS: float = 5.0
 const FOOD_PER_PERSON: float = 0.1
 
+# 开局帮扶（用户 2026-10-12 反馈）：前 N 名居民无条件迁入，只需有空房、不要求余粮。
+const FOUNDING_POPULATION: int = 10
+
 # 岗位（E03.a）：建筑种类 → 岗位类别；类别优先序当前固定（临时规则，界面化留 E03.b）。
 const JOB_CATEGORIES: Dictionary = { &"farm": &"farming", &"lumberyard": &"lumber" }
 const JOB_CATEGORY_ORDER: Array[StringName] = [&"farming", &"lumber"]
@@ -265,8 +268,14 @@ func advance_time(delta: float) -> void:
 		remaining -= segment
 
 
+func _can_move_in() -> bool:
+	# 迁入条件：有空房，且（前 N 名开局居民无条件；之后需要有余粮）。
+	return population < population_cap() \
+		and (population < FOUNDING_POPULATION or grain > 0)
+
+
 func _time_to_next_arrival() -> float:
-	if population < population_cap() and grain > 0:
+	if _can_move_in():
 		return (1.0 - move_in_progress) * MOVE_IN_SECONDS
 	return INF
 
@@ -300,7 +309,7 @@ func _produce(segment: float) -> void:
 
 
 func _arrive(segment: float) -> void:
-	if population < population_cap() and grain > 0:
+	if _can_move_in():
 		move_in_progress += segment / MOVE_IN_SECONDS
 		if move_in_progress >= 1.0 - 0.0000001:
 			move_in_progress = 0.0
@@ -553,9 +562,10 @@ func apply_save_data(data: Variant) -> String:
 	if size_result.has("error"):
 		return size_result["error"]
 	var size: Vector2i = size_result["data"]
-	# 大本营是占地建筑（E01.b）：旧档按 1×1 记录，按当前占地扩位时与它重叠的建筑让位
-	#（幂等，对 v4 档同样安全；让位语义与 v1 迁移一致）。
-	var drop_result := _drop_buildings_under_hq(data["buildings"], size)
+	# 建筑占地可能随配表扩张（E01.b 大本营、E03 反馈后农田/伐木场/民居均 2×2）：
+	# 旧档按旧占地记录，读档时按当前占地重算，与已保留建筑重叠的条目让位
+	#（大本营优先保留，其余按存档顺序；幂等，任何版本档都安全）。
+	var drop_result := _drop_overlapping_entries(data["buildings"], size)
 	if drop_result != "":
 		return drop_result
 	var terrain_result := _parse_terrain_data(data.get("terrain"), size)
@@ -632,9 +642,9 @@ static func _find_hq_cell(loaded_buildings: Dictionary) -> Vector2i:
 	return LEGACY_HQ_CELL
 
 
-## 大本营扩位让位：删除占地与大本营重叠的其他建筑条目（原地修改 entries）。
-## 返回中文错误原因；空串表示成功（含找不到大本营的情况，由主校验统一报错）。
-static func _drop_buildings_under_hq(entries: Array, size: Vector2i) -> String:
+## 占地扩张让位：按当前 footprint 重算占地，与已保留建筑重叠（或越界）的
+## 条目从 entries 原地移除。大本营必须保留且不得越界；返回中文错误或空串。
+static func _drop_overlapping_entries(entries: Array, size: Vector2i) -> String:
 	var hq_index := -1
 	var hq_origin := Vector2i.ZERO
 	for i: int in range(entries.size()):
@@ -646,14 +656,15 @@ static func _drop_buildings_under_hq(entries: Array, size: Vector2i) -> String:
 				return "存档中的建筑数据损坏。"
 			hq_index = i
 			hq_origin = Vector2i(int(entry.get("x", -99)), int(entry.get("y", -99)))
-	if hq_index < 0:
-		return ""
-	var hq_def := building_def(&"hq")
-	var footprint: Vector2i = hq_def.footprint if hq_def != null else Vector2i.ONE
-	var hq_covered := covered_cells(hq_origin, footprint)
-	for covered: Vector2i in hq_covered:
-		if not _in_bounds(covered, size):
-			return "存档中的大本营占地超出地图。"
+	var occupied: Dictionary = {}
+	if hq_index >= 0:
+		var hq_def := building_def(&"hq")
+		var hq_footprint: Vector2i = hq_def.footprint if hq_def != null else Vector2i.ONE
+		var hq_covered := covered_cells(hq_origin, hq_footprint)
+		for covered: Vector2i in hq_covered:
+			if not _in_bounds(covered, size):
+				return "存档中的大本营占地超出地图。"
+			occupied[covered] = hq_origin
 	var kept: Array = []
 	for i: int in range(entries.size()):
 		if i == hq_index:
@@ -664,14 +675,19 @@ static func _drop_buildings_under_hq(entries: Array, size: Vector2i) -> String:
 		var kind := StringName(str(entry.get("kind", "")))
 		var overlaps := false
 		for covered: Vector2i in _def_covered_cells(origin, kind):
-			if covered in hq_covered:
+			if not _in_bounds(covered, size) or occupied.has(covered):
 				overlaps = true
 				break
-		if not overlaps:
-			kept.append(entry)
+		if overlaps:
+			continue
+		kept.append(entry)
+		for covered: Vector2i in _def_covered_cells(origin, kind):
+			occupied[covered] = origin
 	entries.clear()
 	entries.append_array(kept)
 	return ""
+
+
 
 
 static func _in_bounds(cell: Vector2i, size: Vector2i) -> bool:

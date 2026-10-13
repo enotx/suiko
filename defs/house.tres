@@ -12,5 +12,5 @@ base_rate = 0.0
 worked_rate = 0.0
 worker_assignable = false
 unique = false
-footprint = Vector2i(1, 1)
+footprint = Vector2i(2, 2)
 capacity = 5

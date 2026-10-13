@@ -266,10 +266,10 @@ func _run() -> void:
     check(main.resources_label.text.contains("80"), "Shared HUD reflects resources")
 
     for i in range(8):
-        await click_build(Vector2i(20 + i, 53), main.build_farm_button)
+        await click_build(Vector2i(20 + 2 * i, 53), main.build_farm_button)
     check(main.town.wood == 0 and main.town.buildings.size() == 11, "Spend starting wood")
-    check(main.selected_cell == Vector2i(27, 53), "Last built farm stays selected")
-    await click_map(Vector2i(28, 53))
+    check(main.selected_cell == Vector2i(34, 53), "Last built farm stays selected")
+    await click_map(Vector2i(36, 53))
     check(main.build_farm_button.disabled and main.build_lumberyard_button.disabled,
         "Build buttons disabled without enough wood")
     await click_at(main.deselect_button.get_global_rect().get_center())
@@ -371,16 +371,23 @@ func _run() -> void:
     pop_town.advance_time(10.0)
     check(pop_town.population == 5, "Out of grain stops move-in but starves nobody")
 
+    # 开局帮扶：前 10 名居民无条件迁入，只要求有空房（用户反馈的第一轮循环问题）。
+    var founding := TownState.new()
+    check(founding.try_build(Vector2i(4, 4), &"house").contains("已"), "House for founding test")
+    founding.advance_time(25.0)
+    check(founding.population == 5 and founding.grain == 0,
+        "Founding residents move in without any grain")
+
     # E03：岗位与自动填岗——居民按类别优先序填充岗位，产出按已填岗位叠加。
     var job_town := TownState.new()
     check(job_town.try_build(Vector2i(4, 4), &"farm").contains("已")
-        and job_town.try_build(Vector2i(5, 4), &"lumberyard").contains("已")
-        and job_town.try_build(Vector2i(6, 4), &"house").contains("已"), "Job town prepared")
+        and job_town.try_build(Vector2i(7, 4), &"lumberyard").contains("已")
+        and job_town.try_build(Vector2i(4, 6), &"house").contains("已"), "Job town prepared")
     job_town.grain = 100
     job_town.advance_time(25.0)
     check(job_town.population == 5, "Residents arrive for job test")
     var assignment: Dictionary = job_town.job_assignment()
-    check(assignment.get(Vector2i(4, 4), 0) == 2 and assignment.get(Vector2i(5, 4), 0) == 2,
+    check(assignment.get(Vector2i(4, 4), 0) == 2 and assignment.get(Vector2i(7, 4), 0) == 2,
         "Farming fills first, then lumber")
     check(job_town.staffed_population() == 4, "Four residents employed, one idle")
     job_town.grain = 0
@@ -391,7 +398,7 @@ func _run() -> void:
     # 阮小二占一个岗位位：他在时居民只能补另一岗；他撤走居民顶上（D21 兼容桥）。
     var ruan_town := TownState.new()
     ruan_town.try_build(Vector2i(4, 4), &"farm")
-    ruan_town.try_build(Vector2i(5, 4), &"house")
+    ruan_town.try_build(Vector2i(7, 4), &"house")
     ruan_town.assign_worker(Vector2i(4, 4))
     ruan_town.grain = 20
     ruan_town.advance_time(5.0)
@@ -413,11 +420,11 @@ func _run() -> void:
     check(main.town.buildings.get(Vector2i(45, 10), &"") == &"farm", "Highland accepts farms (D18)")
     var elevated := false
     for piece in main.map_3d.buildings_root.get_children():
-        if is_equal_approx(piece.position.x, 45.5) and is_equal_approx(piece.position.z, 10.5) \
+        if is_equal_approx(piece.position.x, 46.0) and is_equal_approx(piece.position.z, 11.0) \
                 and is_equal_approx(piece.position.y, 0.555):
             elevated = true
     check(elevated, "Highland farm model sits on the raised terrain")
-    var high_roof: Vector2 = main.map_3d.camera.unproject_position(Vector3(45.73, 1.05, 10.68))
+    var high_roof: Vector2 = main.map_3d.camera.unproject_position(Vector3(46.66, 0.95, 11.66))
     check(main.map_3d.cell_at_position(high_roof) == Vector2i(45, 10),
         "Highland building picking uses raised origin")
     await click_map(Vector2i(45, 10))
@@ -458,6 +465,16 @@ func _run() -> void:
         "Save round-trip restores resource and grass terrain")
     loader.advance_time(0.5)
     check(loader.grain == 1, "Continuing after load does not double-settle")
+
+    # 占地扩张迁移：旧档 1×1 时代的相邻建筑，按 2×2 重算后后到的让位。
+    var v5_overlap: Dictionary = save_data.duplicate(true)
+    v5_overlap["buildings"].append({ "x": 5, "y": 5, "kind": "farm", "progress": 0.0 })
+    var from_v5_overlap := TownState.new()
+    check(from_v5_overlap.apply_save_data(v5_overlap) == "",
+        "V5 save with 1x1-era overlap migrates")
+    check(from_v5_overlap.buildings.size() == 2
+        and not from_v5_overlap.buildings.has(Vector2i(5, 5)),
+        "Expanded 2x2 footprints drop the later overlapping building")
 
     # 损坏存档逐项拒绝，且不破坏当前状态。
     var guard := TownState.new()
