@@ -447,7 +447,7 @@ func _run() -> void:
     saver.try_build(Vector2i(4, 4), &"farm")
     saver.advance_time(0.5)
     var save_data: Dictionary = saver.to_save_data()
-    check(save_data["version"] == 5 and save_data["map_size"] == [60, 60]
+    check(save_data["version"] == 6 and save_data["map_size"] == [60, 60]
         and save_data["map_name"] == "测试城镇", "Save v4 records map size and name")
     var loader := TownState.new()
     loader.try_build(Vector2i(5, 5), &"farm")
@@ -527,6 +527,8 @@ func _run() -> void:
     check(migrated.map_size == Vector2i(16, 12) and migrated.terrain_height(Vector2i(13, 2)) == 0.5
         and migrated.is_water(Vector2i(1, 1)), "V1 migration gains legacy terrain")
     check(migrated.population == 0, "V1 migration starts without population")
+    check(migrated.job_category_order[0] == &"farming" and migrated.job_caps[&"farming"] == 0,
+        "Migration starts with default job preferences")
     var v2_data := {"version": 2, "wood": 30, "grain": 1, "worker_x": -1, "worker_y": -1,
         "buildings": [{"x": 6, "y": 6, "kind": "lumberyard", "progress": 0.1},
             {"x": 8, "y": 5, "kind": "hq", "progress": 0.0}]}
@@ -606,6 +608,23 @@ func _run() -> void:
     check(main.paused and main.pause_button.text == "继续经营", "Pause toggles state and label")
     await click_at(main.pause_button.get_global_rect().get_center())
     check(not main.paused and main.pause_button.text == "暂停经营", "Resume restores production")
+
+    # E03.b GUI：岗位优先与人数上限按钮。
+    check(main.job_priority_button.visible and main.job_farm_cap_button.visible,
+        "Job preference buttons are visible")
+    await click_at(main.job_priority_button.get_global_rect().get_center())
+    check(main.job_priority_button.text == "优先：伐木"
+        and main.town.job_category_order[0] == &"lumber",
+        "Priority button flips the order")
+    await click_at(main.job_priority_button.get_global_rect().get_center())
+    check(main.job_priority_button.text == "优先：农耕", "Priority button toggles back")
+    await click_at(main.job_farm_cap_button.get_global_rect().get_center())
+    check(main.job_farm_cap_button.text == "农耕：≤2" and main.town.job_caps[&"farming"] == 2,
+        "Farm cap button cycles to two")
+    for i in range(4):
+        await click_at(main.job_farm_cap_button.get_global_rect().get_center())
+    check(main.job_farm_cap_button.text == "农耕：不限" and main.town.job_caps[&"farming"] == 0,
+        "Farm cap cycles back to unlimited")
 
     if "--capture" in OS.get_cmdline_user_args():
         if not main.showing_3d:

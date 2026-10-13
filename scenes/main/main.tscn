@@ -58,10 +58,10 @@ offset_right = 895.0
 offset_bottom = 108.0
 
 [node name="Instructions" type="Label" parent="UI" unique_id=408713511]
-offset_left = 595.0
-offset_top = 436.0
+offset_left = 40.0
+offset_top = 548.0
 offset_right = 930.0
-offset_bottom = 472.0
+offset_bottom = 584.0
 text = "蓝=水泊；绿=平地；黄绿=高地（可建造）；点空地选中后建。
 大本营是核心，伐木场产木、农田产粮；选中建筑可分配阮小二。"
 
@@ -107,6 +107,27 @@ offset_right = 930.0
 offset_bottom = 392.0
 text = "建民居（30木）"
 
+[node name="JobPriorityButton" type="Button" parent="UI"]
+offset_left = 595.0
+offset_top = 436.0
+offset_right = 704.0
+offset_bottom = 472.0
+text = "优先：农耕"
+
+[node name="JobFarmCapButton" type="Button" parent="UI"]
+offset_left = 708.0
+offset_top = 436.0
+offset_right = 817.0
+offset_bottom = 472.0
+text = "农耕：不限"
+
+[node name="JobLumberCapButton" type="Button" parent="UI"]
+offset_left = 821.0
+offset_top = 436.0
+offset_right = 930.0
+offset_bottom = 472.0
+text = "伐木：不限"
+
 [node name="DeselectButton" type="Button" parent="UI"]
 offset_left = 595.0
 offset_top = 396.0
@@ -121,12 +142,6 @@ offset_right = 930.0
 offset_bottom = 432.0
 text = "重置城镇"
 
-[node name="Footer" type="Label" parent="UI" unique_id=423037683]
-offset_left = 40.0
-offset_top = 545.0
-offset_right = 900.0
-offset_bottom = 575.0
-text = "学习目标：切换的是画面，建筑、木材和规则始终是同一份。"
 
 [node name="ViewLabel" type="Label" parent="UI" unique_id=481757889]
 offset_left = 595.0

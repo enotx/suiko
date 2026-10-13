@@ -12,6 +12,7 @@ var paused: bool = false
 var _last_shown_grain: int = -1
 var _last_shown_wood: int = -1
 var _last_shown_population: int = -1
+var _last_shown_staffed: int = -1
 # 左键拖动平移 vs 点击选中：按下先记为“待定点击”，位移超过阈值才算拖拽；
 # 松手时没超过阈值就当作一次普通点击。阈值放宽可减少触摸板的误拖拽。
 const DRAG_THRESHOLD_PX: float = 8.0
@@ -39,6 +40,9 @@ var _left_press_position: Vector2 = Vector2.ZERO
 @onready var build_farm_button: Button = $UI/BuildFarmButton
 @onready var build_lumberyard_button: Button = $UI/BuildLumberyardButton
 @onready var build_house_button: Button = $UI/BuildHouseButton
+@onready var job_priority_button: Button = $UI/JobPriorityButton
+@onready var job_farm_cap_button: Button = $UI/JobFarmCapButton
+@onready var job_lumber_cap_button: Button = $UI/JobLumberCapButton
 
 
 func _ready() -> void:
@@ -57,13 +61,16 @@ func _ready() -> void:
 	build_farm_button.pressed.connect(_on_build_pressed.bind(&"farm"))
 	build_lumberyard_button.pressed.connect(_on_build_pressed.bind(&"lumberyard"))
 	build_house_button.pressed.connect(_on_build_pressed.bind(&"house"))
+	job_priority_button.pressed.connect(_on_job_priority_pressed)
+	job_farm_cap_button.pressed.connect(_on_job_cap_pressed.bind(&"farming"))
+	job_lumber_cap_button.pressed.connect(_on_job_cap_pressed.bind(&"lumber"))
 	var farm_def: BuildingDef = TownState.building_def(&"farm")
 	var lumber_def: BuildingDef = TownState.building_def(&"lumberyard")
 	build_farm_button.text = "建%s（%d木）" % [farm_def.display_name, farm_def.wood_cost]
 	build_lumberyard_button.text = "建%s（%d木）" % [lumber_def.display_name, lumber_def.wood_cost]
 	var house_def: BuildingDef = TownState.building_def(&"house")
 	build_house_button.text = "建%s（%d木）" % [house_def.display_name, house_def.wood_cost]
-	$UI/Instructions.text = "蓝=水泊 灰绿=草地 黄绿=高地 深绿/灰/棕=林地/石料/铁砂（暂不可建）。\n3D：滚轮缩放，按住左键拖动平移（轻点即选中），右键同样平移；点空地选中后建造，伐木场产木、农田产粮。"
+	$UI/Instructions.text = "蓝=水泊 黄绿=高地 深绿/灰/棕=林石铁资源区块（暂不可建）；滚轮缩放，左键拖动平移，轻点选中。\n伐木场产木、农田产粮；切换的只是画面，建筑与规则始终是同一份。"
 	_apply_view()
 	_select_cell(TownState.INVALID_CELL)
 	_refresh_ui("先选一块空地，建一座伐木场，木材就不再是死水。")
@@ -255,6 +262,24 @@ func _on_build_pressed(def_id: StringName) -> void:
 		_refresh_ui(message)
 
 
+func _on_job_priority_pressed() -> void:
+	var message: String = town.cycle_job_priority()
+	_refresh_job_buttons()
+	_refresh_ui(message)
+
+
+func _on_job_cap_pressed(category: StringName) -> void:
+	var message: String = town.cycle_job_cap(category)
+	_refresh_job_buttons()
+	_refresh_ui(message)
+
+
+func _refresh_job_buttons() -> void:
+	job_priority_button.text = "优先：%s" % ("农耕" if town.job_category_order[0] == &"farming" else "伐木")
+	job_farm_cap_button.text = "农耕：%s" % ("不限" if town.job_caps[&"farming"] == 0 else "≤%d" % town.job_caps[&"farming"])
+	job_lumber_cap_button.text = "伐木：%s" % ("不限" if town.job_caps[&"lumber"] == 0 else "≤%d" % town.job_caps[&"lumber"])
+
+
 func _toggle_pause() -> void:
 	paused = not paused
 	pause_button.text = "继续经营" if paused else "暂停经营"
@@ -301,10 +326,12 @@ func _process(delta: float) -> void:
 		return
 	town.advance_time(delta)
 	if town.grain != _last_shown_grain or town.wood != _last_shown_wood \
-			or town.population != _last_shown_population:
+			or town.population != _last_shown_population \
+			or town.staffed_population() != _last_shown_staffed:
 		_last_shown_grain = town.grain
 		_last_shown_wood = town.wood
 		_last_shown_population = town.population
+		_last_shown_staffed = town.staffed_population()
 		_update_resources()
 		_refresh_selection_panel()
 		_update_action_buttons()
@@ -355,4 +382,5 @@ func _refresh_ui(message: String) -> void:
 	_last_shown_grain = town.grain
 	_last_shown_wood = town.wood
 	_update_resources()
+	_refresh_job_buttons()
 	status_label.text = message

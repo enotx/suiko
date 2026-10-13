@@ -8,7 +8,8 @@ const STARTING_WOOD: int = 100
 const INVALID_CELL: Vector2i = Vector2i(-1, -1)
 const WORKER_NAME: String = "阮小二"
 const PROGRESS_UNIT: float = 1.0
-const SAVE_FORMAT_VERSION: int = 5
+const SAVE_FORMAT_VERSION: int = 6
+const SAVE_FORMAT_VERSION_V5: int = 5
 const SAVE_FORMAT_VERSION_V4: int = 4
 const SAVE_FORMAT_VERSION_V3: int = 3
 const SAVE_FORMAT_VERSION_V2: int = 2
@@ -86,6 +87,9 @@ var farm_progress: Dictionary = {}
 var population: int = 0
 var move_in_progress: float = 0.0
 var food_buffer: float = 0.0
+# 岗位偏好（E03.b）：类别优先序与每类居民人数上限（0 = 不限；阮小二不受上限约束）。
+var job_category_order: Array[StringName] = DEFAULT_JOB_CATEGORY_ORDER
+var job_caps: Dictionary = DEFAULT_JOB_CAPS
 
 # 人口速率占位值（E02）：每 5 秒迁入 1 人，每人每秒耗 0.1 粮。
 const MOVE_IN_SECONDS: float = 5.0
@@ -94,9 +98,11 @@ const FOOD_PER_PERSON: float = 0.1
 # 开局帮扶（用户 2026-10-12 反馈）：前 N 名居民无条件迁入，只需有空房、不要求余粮。
 const FOUNDING_POPULATION: int = 10
 
-# 岗位（E03.a）：建筑种类 → 岗位类别；类别优先序当前固定（临时规则，界面化留 E03.b）。
+# 岗位（E03.a/E03.b）：建筑种类 → 岗位类别；优先序与每类居民上限由玩家调整。
 const JOB_CATEGORIES: Dictionary = { &"farm": &"farming", &"lumberyard": &"lumber" }
-const JOB_CATEGORY_ORDER: Array[StringName] = [&"farming", &"lumber"]
+const DEFAULT_JOB_CATEGORY_ORDER: Array[StringName] = [&"farming", &"lumber"]
+const DEFAULT_JOB_CAPS: Dictionary = { &"farming": 0, &"lumber": 0 }   # 0 = 不限
+const JOB_CAP_STEPS: Array[int] = [0, 2, 4, 6, 8]
 
 
 func _init() -> void:
@@ -325,22 +331,50 @@ func job_assignment() -> Dictionary:
 	for origin: Vector2i in buildings:
 		var kind: StringName = buildings[origin]
 		if JOB_CATEGORIES.has(kind):
-			var rank: int = JOB_CATEGORY_ORDER.find(JOB_CATEGORIES[kind])
-			entries.append([rank if rank >= 0 else 999, origin.y, origin.x, origin])
+			var rank: int = job_category_order.find(JOB_CATEGORIES[kind])
+			entries.append([rank if rank >= 0 else 999, origin.y, origin.x, origin, JOB_CATEGORIES[kind]])
 	entries.sort()
 	var assignment: Dictionary = {}
 	var pool := population
+	var used: Dictionary = {}
 	for entry: Array in entries:
+		var category: StringName = entry[4]
 		var def := building_def(buildings[entry[3]])
 		var jobs: int = def.jobs if def != null else 0
 		var filled := 0
 		if worker_cell == entry[3] and jobs > 0:
 			filled += 1
-		var take: int = mini(pool, jobs - filled)
+		var room: int = jobs - filled
+		var cap: int = job_caps.get(category, 0)
+		if cap > 0:
+			room = mini(room, cap - used.get(category, 0))
+		var take: int = mini(pool, maxi(room, 0))
 		filled += take
 		pool -= take
+		used[category] = used.get(category, 0) + take
 		assignment[entry[3]] = filled
 	return assignment
+
+
+func cycle_job_priority() -> String:
+	# 交换两类岗位的填充优先序（E03.b）。
+	job_category_order = [job_category_order[1], job_category_order[0]]
+	return "岗位优先级已切换为 %s 优先。" % _category_display(job_category_order[0])
+
+
+func cycle_job_cap(category: StringName) -> String:
+	# 每类居民上限按档位循环：不限 → 2 → 4 → 6 → 8 → 不限。
+	var index: int = JOB_CAP_STEPS.find(job_caps.get(category, 0))
+	job_caps[category] = JOB_CAP_STEPS[(index + 1) % JOB_CAP_STEPS.size()]
+	return "%s岗位居民上限已调整为 %s。" % [_category_display(category), _cap_display(job_caps[category])]
+
+
+func _category_display(category: StringName) -> String:
+	return "农耕" if category == &"farming" else "伐木"
+
+
+func _cap_display(cap: int) -> String:
+	return "不限" if cap == 0 else "≤%d" % cap
 
 
 func staffed_population() -> int:
@@ -450,6 +484,11 @@ func to_save_data() -> Dictionary:
 		"population": population,
 		"move_in_progress": move_in_progress,
 		"food_buffer": food_buffer,
+		"job_order": job_category_order.map(func(c: StringName) -> String: return String(c)),
+		"job_caps": {
+			"farming": int(job_caps.get(&"farming", 0)),
+			"lumber": int(job_caps.get(&"lumber", 0)),
+		},
 		"worker_x": worker_cell.x if worker_cell != INVALID_CELL else -1,
 		"worker_y": worker_cell.y if worker_cell != INVALID_CELL else -1,
 		"buildings": buildings_data,
@@ -550,13 +589,19 @@ func apply_save_data(data: Variant) -> String:
 		data["map_size"] = [LEGACY_MAP_SIZE.x, LEGACY_MAP_SIZE.y]
 		version = SAVE_FORMAT_VERSION_V4
 		data["version"] = SAVE_FORMAT_VERSION_V4
-	elif version != SAVE_FORMAT_VERSION_V4 and version != SAVE_FORMAT_VERSION:
+	elif version != SAVE_FORMAT_VERSION_V4 and version != SAVE_FORMAT_VERSION_V5 \
+			and version != SAVE_FORMAT_VERSION:
 		return "存档版本不兼容。"
 	if version == SAVE_FORMAT_VERSION_V4:
 		# v4 → v5：补人口字段（旧档还没有人口概念，迁移后从零开始）。
 		data["population"] = 0
 		data["move_in_progress"] = 0.0
 		data["food_buffer"] = 0.0
+		data["version"] = SAVE_FORMAT_VERSION_V5
+	if version == SAVE_FORMAT_VERSION_V5:
+		# v5 → v6：补岗位偏好字段（旧档使用默认优先序与不限上限）。
+		data["job_order"] = ["farming", "lumber"]
+		data["job_caps"] = { "farming": 0, "lumber": 0 }
 		data["version"] = SAVE_FORMAT_VERSION
 	var size_result := _parse_map_size(data.get("map_size"))
 	if size_result.has("error"):
@@ -615,6 +660,38 @@ func apply_save_data(data: Variant) -> String:
 	if loaded_population < 0 or loaded_population > loaded_buildings.size() * 1000 \
 			or loaded_move_in < 0.0 or loaded_move_in >= 1.0 or loaded_food_buffer < 0.0:
 		return "存档中的人口数据损坏。"
+	var loaded_order: Array[StringName] = []
+	var loaded_caps: Dictionary = {}
+	var order_raw: Variant = data.get("job_order", null)
+	if order_raw == null:
+		loaded_order = DEFAULT_JOB_CATEGORY_ORDER
+	else:
+		if typeof(order_raw) != TYPE_ARRAY or (order_raw as Array).size() != JOB_CATEGORIES.size():
+			return "存档中的岗位优先序损坏。"
+		var seen: Dictionary = {}
+		for item: Variant in order_raw:
+			var category := StringName(str(item))
+			if not JOB_CATEGORIES.values().has(category) or seen.has(category):
+				return "存档中的岗位优先序损坏。"
+			seen[category] = true
+			loaded_order.append(category)
+	var caps_raw: Variant = data.get("job_caps", null)
+	if caps_raw == null:
+		loaded_caps = DEFAULT_JOB_CAPS
+	else:
+		if typeof(caps_raw) != TYPE_DICTIONARY:
+			return "存档中的岗位上限损坏。"
+		for key: Variant in caps_raw:
+			var category := StringName(str(key))
+			if not JOB_CATEGORIES.values().has(category):
+				return "存档中的岗位上限损坏。"
+			var value := int(caps_raw[key])
+			if value < 0:
+				return "存档中的岗位上限损坏。"
+			loaded_caps[category] = value
+	for category: StringName in JOB_CATEGORIES.values():
+		if not loaded_caps.has(category):
+			loaded_caps[category] = 0
 	var loaded_name := "无名城镇"
 	if data.has("map_name"):
 		if typeof(data["map_name"]) != TYPE_STRING or str(data["map_name"]).is_empty():
@@ -628,6 +705,8 @@ func apply_save_data(data: Variant) -> String:
 	population = loaded_population
 	move_in_progress = loaded_move_in
 	food_buffer = loaded_food_buffer
+	job_category_order = loaded_order
+	job_caps = loaded_caps
 	terrain = parsed_terrain
 	map_size = size
 	map_name = loaded_name
@@ -780,6 +859,8 @@ func reset() -> void:
 	population = 0
 	move_in_progress = 0.0
 	food_buffer = 0.0
+	job_category_order = DEFAULT_JOB_CATEGORY_ORDER
+	job_caps = DEFAULT_JOB_CAPS
 	_reset_preset()
 
 
