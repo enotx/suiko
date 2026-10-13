@@ -371,6 +371,43 @@ func _run() -> void:
     pop_town.advance_time(10.0)
     check(pop_town.population == 5, "Out of grain stops move-in but starves nobody")
 
+    # E03：岗位与自动填岗——居民按类别优先序填充岗位，产出按已填岗位叠加。
+    var job_town := TownState.new()
+    check(job_town.try_build(Vector2i(4, 4), &"farm").contains("已")
+        and job_town.try_build(Vector2i(5, 4), &"lumberyard").contains("已")
+        and job_town.try_build(Vector2i(6, 4), &"house").contains("已"), "Job town prepared")
+    job_town.grain = 100
+    job_town.advance_time(25.0)
+    check(job_town.population == 5, "Residents arrive for job test")
+    var assignment: Dictionary = job_town.job_assignment()
+    check(assignment.get(Vector2i(4, 4), 0) == 2 and assignment.get(Vector2i(5, 4), 0) == 2,
+        "Farming fills first, then lumber")
+    check(job_town.staffed_population() == 4, "Four residents employed, one idle")
+    job_town.grain = 0
+    var job_wood: int = job_town.wood
+    job_town.advance_time(2.0)
+    check(job_town.wood == job_wood + 6, "Fully staffed lumberyard yields three wood per second")
+
+    # 阮小二占一个岗位位：他在时居民只能补另一岗；他撤走居民顶上（D21 兼容桥）。
+    var ruan_town := TownState.new()
+    ruan_town.try_build(Vector2i(4, 4), &"farm")
+    ruan_town.try_build(Vector2i(5, 4), &"house")
+    ruan_town.assign_worker(Vector2i(4, 4))
+    ruan_town.grain = 20
+    ruan_town.advance_time(5.0)
+    check(ruan_town.population == 1, "One resident arrives for the Ruan test")
+    check(ruan_town.building_jobs_filled(Vector2i(4, 4)) == 2,
+        "Ruan and the resident share the two farm slots")
+    var ruan_grain: int = ruan_town.grain
+    ruan_town.advance_time(2.0)
+    check(ruan_town.grain == ruan_grain + 6, "Ruan plus resident make the farm yield three per second")
+    ruan_town.withdraw_worker()
+    check(ruan_town.building_jobs_filled(Vector2i(4, 4)) == 1,
+        "Resident keeps his slot but the empty slot stays open")
+    ruan_grain = ruan_town.grain
+    ruan_town.advance_time(2.0)
+    check(ruan_town.grain == ruan_grain + 4, "Rate drops back to two per second")
+
     # P08：高地上建造——建筑基准抬升到地形高度，且可被拾取；高格选中高亮可见。
     await click_build(Vector2i(45, 10), main.build_farm_button)
     check(main.town.buildings.get(Vector2i(45, 10), &"") == &"farm", "Highland accepts farms (D18)")

@@ -91,6 +91,10 @@ var food_buffer: float = 0.0
 const MOVE_IN_SECONDS: float = 5.0
 const FOOD_PER_PERSON: float = 0.1
 
+# 岗位（E03.a）：建筑种类 → 岗位类别；类别优先序当前固定（临时规则，界面化留 E03.b）。
+const JOB_CATEGORIES: Dictionary = { &"farm": &"farming", &"lumberyard": &"lumber" }
+const JOB_CATEGORY_ORDER: Array[StringName] = [&"farming", &"lumber"]
+
 
 func _init() -> void:
 	_reset_preset()
@@ -124,6 +128,8 @@ static func validate_defs() -> Array[String]:
 			problems.append("建筑 %s 的占地必须至少 1×1" % id)
 		if def.capacity < 0:
 			problems.append("建筑 %s 的住房容量不能为负" % id)
+		if def.jobs < 0 or def.job_rate < 0.0:
+			problems.append("建筑 %s 的岗位数或岗位产出不能为负" % id)
 	return problems
 
 
@@ -249,13 +255,30 @@ func farm_progress_ratio(cell: Vector2i) -> float:
 
 
 func advance_time(delta: float) -> void:
-	# 唯一模拟入口：接收游戏经过的秒数。长时间步通过 while 累计多个完整周期，不丢产量。
+	# 唯一模拟入口。以迁入事件为切片边界：段内岗位 staffing 不变，
+	# 生产与耗粮按段积分，长时间步与逐帧推进结果一致（ECONOMY 确定性要求）。
+	var remaining: float = delta
+	while remaining > 0.0000001:
+		var segment: float = minf(remaining, _time_to_next_arrival())
+		_produce(segment)
+		_arrive(segment)
+		remaining -= segment
+
+
+func _time_to_next_arrival() -> float:
+	if population < population_cap() and grain > 0:
+		return (1.0 - move_in_progress) * MOVE_IN_SECONDS
+	return INF
+
+
+func _produce(segment: float) -> void:
+	var assignment := job_assignment()
 	for cell: Vector2i in buildings:
 		var def := building_def(buildings[cell])
 		if def == null or def.produces == &"":
 			continue
-		var rate: float = def.worked_rate if worker_cell == cell else def.base_rate
-		var progress: float = farm_progress.get(cell, 0.0) + rate * delta
+		var rate: float = def.base_rate + assignment.get(cell, 0) * def.job_rate
+		var progress: float = farm_progress.get(cell, 0.0) + rate * segment
 		while progress >= PROGRESS_UNIT:
 			progress -= PROGRESS_UNIT
 			if def.produces == &"grain":
@@ -263,7 +286,72 @@ func advance_time(delta: float) -> void:
 			elif def.produces == &"wood":
 				wood += 1
 		farm_progress[cell] = progress
-	_advance_population(delta)
+	# 人口耗粮：粮尽软失败——把剩余粮食吃光为止，不饿人（E02 临时规则）。
+	if population > 0 and grain > 0:
+		var consumption: float = population * FOOD_PER_PERSON * segment
+		if consumption <= float(grain):
+			food_buffer += consumption
+			var eaten := int(food_buffer)
+			if eaten > 0:
+				food_buffer -= eaten
+				grain -= eaten
+		else:
+			grain = 0
+
+
+func _arrive(segment: float) -> void:
+	if population < population_cap() and grain > 0:
+		move_in_progress += segment / MOVE_IN_SECONDS
+		if move_in_progress >= 1.0 - 0.0000001:
+			move_in_progress = 0.0
+			population += 1
+	else:
+		move_in_progress = 0.0
+
+
+## 岗位分配（E03.a，派生值不落存档）：阮小二占一个岗位，居民按类别优先序与
+## 格子顺序自动填充剩余岗位。类别优先序当前固定，界面化留 E03.b。
+func job_assignment() -> Dictionary:
+	var entries: Array = []
+	for origin: Vector2i in buildings:
+		var kind: StringName = buildings[origin]
+		if JOB_CATEGORIES.has(kind):
+			var rank: int = JOB_CATEGORY_ORDER.find(JOB_CATEGORIES[kind])
+			entries.append([rank if rank >= 0 else 999, origin.y, origin.x, origin])
+	entries.sort()
+	var assignment: Dictionary = {}
+	var pool := population
+	for entry: Array in entries:
+		var def := building_def(buildings[entry[3]])
+		var jobs: int = def.jobs if def != null else 0
+		var filled := 0
+		if worker_cell == entry[3] and jobs > 0:
+			filled += 1
+		var take: int = mini(pool, jobs - filled)
+		filled += take
+		pool -= take
+		assignment[entry[3]] = filled
+	return assignment
+
+
+func staffed_population() -> int:
+	# 就业居民数（阮小二不计入，他不是人口）。
+	var total := 0
+	var assignment := job_assignment()
+	for origin: Vector2i in assignment:
+		total += assignment[origin]
+	return total
+
+
+func building_jobs_filled(origin: Vector2i) -> int:
+	# 该建筑已占岗位数（居民 + 阮小二）。
+	var def := building_def(buildings.get(origin, &""))
+	if def == null or def.jobs <= 0:
+		return 0
+	var filled: int = job_assignment().get(origin, 0)
+	if worker_is_at(origin):
+		filled += 1
+	return mini(filled, def.jobs)
 
 
 func population_cap() -> int:

@@ -182,10 +182,17 @@ func _refresh_selection_panel() -> void:
 		var worker_text: String = TownState.WORKER_NAME if town.worker_is_at(selected_cell) else "无"
 		var progress_text: String = "产出进度：%d%%" % int(town.farm_progress_ratio(selected_cell) * 100.0) \
 			if def.produces != &"" else "不产出"
-		var housing_text: String = "容纳：%d 人" % def.capacity if def.capacity > 0 else "工作者：%s" % worker_text
+		var detail_line: String
+		if def.capacity > 0:
+			detail_line = "容纳：%d 人" % def.capacity
+		elif def.jobs > 0:
+			var ruan_mark: String = "·阮小二在此" if town.worker_is_at(selected_cell) else ""
+			detail_line = "岗位：%d/%d%s" % [town.building_jobs_filled(selected_cell), def.jobs, ruan_mark]
+		else:
+			detail_line = "工作者：%s" % worker_text
 		selection_label.text = "选中：%s（占地 %d×%d）\n位置：(%d, %d)\n%s\n%s" % [
 			def.display_name, def.footprint.x, def.footprint.y,
-			selected_cell.x, selected_cell.y, housing_text, progress_text
+			selected_cell.x, selected_cell.y, detail_line, progress_text
 		]
 	elif _is_buildable_cell(selected_cell):
 		selection_label.text = "空地 (%d, %d)\n阮小二：%s\n在下方选择要建造的建筑；多格建筑从锚点向右下扩展。" % [
@@ -337,8 +344,9 @@ func _update_resources() -> void:
 	for kind: StringName in town.buildings.values():
 		if kind == &"farm":
 			farm_count += 1
-	resources_label.text = "木材：%d    粮食：%d    人口：%d/%d    农田：%d    大本营：%s" % [
-		town.wood, town.grain, town.population, town.population_cap(), farm_count,
+	resources_label.text = "木材：%d    粮食：%d    人口：%d/%d（就业 %d）    农田：%d    大本营：%s" % [
+		town.wood, town.grain, town.population, town.population_cap(),
+		town.staffed_population(), farm_count,
 		"已建立" if town.buildings.values().has(&"hq") else "无"
 	]
 

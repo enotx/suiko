@@ -14,3 +14,7 @@ extends Resource
 @export var footprint: Vector2i = Vector2i.ONE
 ## 住房容量：提供的人口上限。0 表示不提供住房。
 @export var capacity: int = 0
+## 岗位数：居民可自动填充的工作位。0 表示没有岗位。
+@export var jobs: int = 0
+## 每个已填岗位的产出加成（/秒）。产出 = base_rate + 已填岗位数 x job_rate。
+@export var job_rate: float = 0.0
