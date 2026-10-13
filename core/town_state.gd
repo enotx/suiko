@@ -300,6 +300,7 @@ func advance_time(delta: float) -> void:
 		segment = minf(segment, _time_to_next_construction_completion())
 		_produce(segment)
 		_arrive(segment)
+		_auto_upgrade_housing()
 		_advance_construction(segment)
 		remaining -= segment
 
@@ -539,9 +540,82 @@ func queue_upgrade(origin: Vector2i) -> String:
 
 
 ## 取消工地或升级：按动作全额退款，并让排队项目顶上。
+## 民居自动升级（E04.b，临时规则）：城内住满时，等级最低且无施工的民居
+## 免费自动排队扩建（居民自建，仍占用建筑工；同一时间最多一个自动项目）。
+func _auto_upgrade_housing() -> void:
+	if population < population_cap():
+		return
+	for entry: Dictionary in construction_queue:
+		if entry.get("auto", false):
+			return
+	var best := INVALID_CELL
+	var best_level := 999
+	for origin: Vector2i in buildings:
+		if buildings[origin] != &"house" or has_pending_construction(origin):
+			continue
+		var level := building_level(origin)
+		if level >= building_def(&"house").max_level:
+			continue
+		if level < best_level:
+			best_level = level
+			best = origin
+	if best == INVALID_CELL:
+		return
+	construction_queue.append({
+		"seq": next_seq, "action": &"upgrade", "def_id": &"house",
+		"origin": best, "level": best_level + 1, "progress": 0.0,
+		"active": _active_builders() < BUILDERS, "auto": true,
+	})
+	next_seq += 1
+	_promote_queue()
+
+
+func upgradable_count(kind: StringName) -> int:
+	# 同类可升级（已落成、未满级、无施工）的建筑数量。
+	var def := building_def(kind)
+	if def == null:
+		return 0
+	var count := 0
+	for origin: Vector2i in buildings:
+		if buildings[origin] == kind and not has_pending_construction(origin) \
+				and building_level(origin) < def.max_level:
+			count += 1
+	return count
+
+
+## 同类批量升级（E04.b）：全部可升级的同种建筑一次排队，费用合并，全有全无。
+func queue_upgrade_all(kind: StringName) -> String:
+	var def := building_def(kind)
+	if def == null or def.max_level <= 1:
+		return "该建筑类型无法升级。"
+	var targets: Array[Vector2i] = []
+	for origin: Vector2i in buildings:
+		if buildings[origin] == kind and not has_pending_construction(origin) \
+				and building_level(origin) < def.max_level:
+			targets.append(origin)
+	if targets.is_empty():
+		return "没有可升级的%s。" % def.display_name
+	var total: int = targets.size() * def.upgrade_wood_cost
+	if wood < total:
+		return "木材不足，全部升级需要 %d 木。" % total
+	wood -= total
+	var active: bool = _active_builders() < BUILDERS
+	for origin: Vector2i in targets:
+		construction_queue.append({
+			"seq": next_seq, "action": &"upgrade", "def_id": kind,
+			"origin": origin, "level": building_level(origin) + 1,
+			"progress": 0.0, "active": active, "auto": false,
+		})
+		next_seq += 1
+	_promote_queue()
+	return "已为 %d 座%s排队升级（共 %d 木）。" % [targets.size(), def.display_name, total]
+
+
 func cancel_construction(origin: Vector2i) -> String:
 	for entry: Dictionary in construction_queue:
 		if entry["origin"] == origin:
+			if entry.get("auto", false):
+				return "这是居民自建项目，无法取消。"
 			var def := building_def(entry["def_id"])
 			var refund: int = def.wood_cost if entry["action"] == &"build" else def.upgrade_wood_cost
 			construction_queue.erase(entry)
@@ -668,6 +742,8 @@ func to_save_data() -> Dictionary:
 		"move_in_progress": move_in_progress,
 		"food_buffer": food_buffer,
 		"job_order": job_category_order.map(func(c: StringName) -> String: return String(c)),
+		"building_levels": _levels_data(),
+		"construction_queue": _queue_data(),
 		"job_caps": {
 			"farming": int(job_caps.get(&"farming", 0)),
 			"lumber": int(job_caps.get(&"lumber", 0)),
@@ -677,6 +753,26 @@ func to_save_data() -> Dictionary:
 		"buildings": buildings_data,
 		"terrain": _terrain_data(),
 	}
+
+
+func _levels_data() -> Array:
+	var entries: Array = []
+	for origin: Vector2i in building_levels:
+		entries.append({ "x": origin.x, "y": origin.y, "level": int(building_levels[origin]) })
+	return entries
+
+
+func _queue_data() -> Array:
+	var entries: Array = []
+	for entry: Dictionary in construction_queue:
+		entries.append({
+			"seq": int(entry["seq"]), "action": String(entry["action"]),
+			"def": String(entry["def_id"]),
+			"x": (entry["origin"] as Vector2i).x, "y": (entry["origin"] as Vector2i).y,
+			"level": int(entry["level"]), "progress": float(entry["progress"]),
+			"active": bool(entry["active"]), "auto": bool(entry.get("auto", false)),
+		})
+	return entries
 
 
 func _terrain_data() -> Array:
@@ -883,6 +979,7 @@ func apply_save_data(data: Variant) -> String:
 			var q_level := int(entry.get("level", 1))
 			var progress := float(entry.get("progress", 0.0))
 			var is_active: bool = bool(entry.get("active", false))
+			var is_auto: bool = bool(entry.get("auto", false))
 			if seq < 1 or (action != &"build" and action != &"upgrade") or q_def == null \
 					or progress < 0.0 or progress >= 1.0:
 				return "存档中的施工队列数据损坏。"
@@ -910,7 +1007,8 @@ func apply_save_data(data: Variant) -> String:
 			seen_origins[q_origin] = true
 			loaded_queue.append({
 				"seq": seq, "action": action, "def_id": q_def.id,
-				"origin": q_origin, "level": q_level, "progress": progress, "active": is_active,
+				"origin": q_origin, "level": q_level, "progress": progress,
+				"active": is_active, "auto": is_auto,
 			})
 		if active_count > BUILDERS:
 			return "存档中的施工队列数据损坏。"

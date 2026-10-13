@@ -382,16 +382,16 @@ func _run() -> void:
     check(pop_town.population_cap() == 5, "Completed house provides housing capacity")
     pop_town.grain = 50
     pop_town.advance_time(50.0)
-    check(pop_town.population == 5 and pop_town.grain < 50,
+    check(pop_town.population >= 5 and pop_town.grain < 50,
         "Residents move in after construction and eat grain")
     pop_town.advance_time(30.0)
-    check(pop_town.population == 5, "Move-in stops at the cap")
+    check(pop_town.population == 8, "Auto upgrade raises the cap and move-in follows")
     var fed_grain: int = pop_town.grain
     pop_town.advance_time(2.0)
     check(pop_town.grain == fed_grain - 1, "Five residents eat 0.5 grain per second")
     pop_town.grain = 0
     pop_town.advance_time(10.0)
-    check(pop_town.population == 5, "Out of grain stops move-in but starves nobody")
+    check(pop_town.population >= 8, "Out of grain never kills residents (soft failure)")
 
     # 开局帮扶：前 10 名居民无条件迁入，只要求有空房（用户反馈的第一轮循环问题）。
     var founding := TownState.new()
@@ -522,6 +522,43 @@ func _run() -> void:
     check(from_v6.apply_save_data(v6_data) == "", "V6 save migrates cleanly")
     check(from_v6.construction_queue.is_empty() and from_v6.building_levels.is_empty(),
         "V6 migration starts with no construction")
+
+    # E04.b：民居自动升级（住满免费自动扩建，一次一个、不可取消）与同类批量升级。
+    var auto_town := TownState.new()
+    auto_town.queue_build(Vector2i(4, 4), &"house")
+    auto_town.advance_time(20.1)
+    auto_town.grain = 50
+    auto_town.advance_time(25.0)
+    check(auto_town.population == 5, "Cap reached for the auto upgrade test")
+    var auto_entries := 0
+    for entry: Dictionary in auto_town.construction_queue:
+        if entry.get("auto", false):
+            auto_entries += 1
+    check(auto_entries == 1, "Exactly one automatic housing upgrade queues")
+    check(auto_town.cancel_construction(Vector2i(4, 4)).contains("无法取消"),
+        "Automatic upgrades refuse cancellation")
+    auto_town.advance_time(25.1)
+    check(auto_town.building_level(Vector2i(4, 4)) == 2 and auto_town.population_cap() == 8,
+        "Automatic upgrade completes and raises capacity")
+
+    var batch := TownState.new()
+    batch.queue_build(Vector2i(4, 4), &"farm")
+    batch.queue_build(Vector2i(7, 4), &"farm")
+    batch.queue_build(Vector2i(10, 4), &"lumberyard")
+    batch.advance_time(15.1)
+    batch.wood = 200
+    check(batch.upgradable_count(&"farm") == 2, "Two farms ready for batch upgrade")
+    check(batch.queue_upgrade_all(&"farm").contains("已为 2 座"), "Batch upgrade queues both farms")
+    check(batch.wood == 120, "Batch upgrade charges for both farms")
+    batch.advance_time(20.1)
+    check(batch.building_level(Vector2i(4, 4)) == 2 and batch.building_level(Vector2i(7, 4)) == 2,
+        "Batch upgrades complete together")
+    batch.wood = 10
+    check(batch.queue_upgrade_all(&"farm").contains("木材不足"),
+        "Batch upgrade is all-or-nothing about wood")
+    check(batch.upgradable_count(&"farm") == 2, "Rejected batch leaves levels unchanged")
+    check(batch.queue_upgrade_all(&"house").contains("没有可升级"),
+        "Batch skips kinds without upgradable buildings")
 
     # P08：高地上建造——建筑基准抬升到地形高度，且可被拾取；高格选中高亮可见。
     await click_build(Vector2i(45, 10), main.build_farm_button)
@@ -760,6 +797,22 @@ func _run() -> void:
     check(main.town.wood == wood_before_upgrade
         and not main.town.has_pending_construction(Vector2i(42, 30)),
         "Cancel refunds and clears the site")
+
+    # E04.b GUI：同类批量升级按钮（现场农田 + 存档中的两座 = 3 座可升级）。
+    check(main.batch_upgrade_button.visible
+        and main.batch_upgrade_button.text.contains("3 座"),
+        "Batch upgrade button counts all upgradable farms")
+    await click_at(main.batch_upgrade_button.get_global_rect().get_center())
+    check(main.town.has_pending_construction(Vector2i(42, 30))
+        and main.town.has_pending_construction(Vector2i(28, 53))
+        and main.town.has_pending_construction(Vector2i(45, 10)),
+        "Batch upgrade queues every upgradable farm")
+    main.town.advance_time(TownState.building_def(&"farm").upgrade_seconds + 0.1)
+    await process_frame
+    check(main.town.building_level(Vector2i(42, 30)) == 2
+        and main.town.building_level(Vector2i(28, 53)) == 2
+        and main.town.building_level(Vector2i(45, 10)) == 2,
+        "Batch upgrades complete")
 
     if "--capture" in OS.get_cmdline_user_args():
         if not main.showing_3d:

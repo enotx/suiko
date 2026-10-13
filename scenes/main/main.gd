@@ -43,6 +43,7 @@ var _left_press_position: Vector2 = Vector2.ZERO
 @onready var build_house_button: Button = $UI/BuildHouseButton
 @onready var upgrade_button: Button = $UI/UpgradeButton
 @onready var cancel_site_button: Button = $UI/CancelSiteButton
+@onready var batch_upgrade_button: Button = $UI/BatchUpgradeButton
 @onready var job_priority_button: Button = $UI/JobPriorityButton
 @onready var job_farm_cap_spin: SpinBox = $UI/JobFarmCapSpin
 @onready var job_lumber_cap_spin: SpinBox = $UI/JobLumberCapSpin
@@ -66,6 +67,7 @@ func _ready() -> void:
 	build_house_button.pressed.connect(_on_build_pressed.bind(&"house"))
 	job_priority_button.pressed.connect(_on_job_priority_pressed)
 	upgrade_button.pressed.connect(_on_upgrade_pressed)
+	batch_upgrade_button.pressed.connect(_on_batch_upgrade_pressed)
 	cancel_site_button.pressed.connect(_on_cancel_site_pressed)
 	job_farm_cap_spin.value_changed.connect(_on_job_cap_changed.bind(&"farming"))
 	job_lumber_cap_spin.value_changed.connect(_on_job_cap_changed.bind(&"lumber"))
@@ -255,6 +257,14 @@ func _update_action_buttons() -> void:
 		upgrade_button.text = "升级到 Lv%d（%d木）" % [
 			town.building_level(selected_cell) + 1, def.upgrade_wood_cost]
 		upgrade_button.disabled = town.wood < def.upgrade_wood_cost
+	# 批量升级：同类建筑至少还有一座可升级（民居自动升级，不提供批量）。
+	batch_upgrade_button.visible = building_selected \
+		and town.upgradable_count(town.buildings[selected_cell]) > 0
+	if batch_upgrade_button.visible:
+		var batch_count: int = town.upgradable_count(town.buildings[selected_cell])
+		batch_upgrade_button.text = "同类全部升级（%d 座×%d木）" % [
+			batch_count, def.upgrade_wood_cost]
+		batch_upgrade_button.disabled = town.wood < batch_count * def.upgrade_wood_cost
 	cancel_site_button.visible = site_selected
 	# 建造按钮：未选中建筑与工地时显示。
 	var show_build: bool = not building_selected and not site_selected
@@ -298,6 +308,12 @@ func _on_upgrade_pressed() -> void:
 
 func _on_cancel_site_pressed() -> void:
 	var message: String = town.cancel_construction(selected_cell)
+	_select_cell(selected_cell)
+	_refresh_ui(message)
+
+
+func _on_batch_upgrade_pressed() -> void:
+	var message: String = town.queue_upgrade_all(town.buildings[selected_cell])
 	_select_cell(selected_cell)
 	_refresh_ui(message)
 

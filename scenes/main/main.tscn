@@ -152,6 +152,13 @@ value = 0.0
 prefix = "伐木≤"
 suffix = "人"
 
+[node name="BatchUpgradeButton" type="Button" parent="UI"]
+offset_left = 595.0
+offset_top = 356.0
+offset_right = 930.0
+offset_bottom = 392.0
+text = "同类全部升级"
+
 [node name="DeselectButton" type="Button" parent="UI"]
 offset_left = 595.0
 offset_top = 396.0
