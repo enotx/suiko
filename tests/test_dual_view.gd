@@ -415,6 +415,41 @@ func _run() -> void:
     ruan_town.advance_time(2.0)
     check(ruan_town.grain == ruan_grain + 2, "Rate drops back to one per second")
 
+    # E03.b：优先级与人数上限——上限 -1=不限、0=禁止、正数=居民上限；阮小二不受上限约束。
+    var pref_town := TownState.new()
+    check(pref_town.try_build(Vector2i(4, 4), &"farm").contains("已")
+        and pref_town.try_build(Vector2i(7, 4), &"lumberyard").contains("已")
+        and pref_town.try_build(Vector2i(4, 6), &"house").contains("已"), "Preference town prepared")
+    pref_town.grain = 100
+    pref_town.advance_time(25.0)
+    check(pref_town.population == 5, "Residents arrive for preference test")
+    check(pref_town.job_category_order[0] == &"farming"
+        and pref_town.job_caps[&"farming"] == -1, "Default priority farming, caps unlimited")
+    pref_town.cycle_job_priority()
+    check(pref_town.job_category_order[0] == &"lumber", "Priority swap flips the order")
+    var swapped: Dictionary = pref_town.job_assignment()
+    check(swapped.get(Vector2i(7, 4), 0) == 2 and swapped.get(Vector2i(4, 4), 0) == 2,
+        "Lumber fills first after the swap")
+    pref_town.set_job_cap(&"farming", 0)
+    var banned: Dictionary = pref_town.job_assignment()
+    check(banned.get(Vector2i(4, 4), 0) == 0 and banned.get(Vector2i(7, 4), 0) == 2,
+        "Cap zero bans farming residents entirely")
+    pref_town.set_job_cap(&"farming", 1)
+    var capped: Dictionary = pref_town.job_assignment()
+    check(capped.get(Vector2i(4, 4), 0) == 1 and pref_town.staffed_population() == 3,
+        "Cap of one leaves the rest to lumber and idle")
+    pref_town.set_job_cap(&"farming", 5000)
+    check(pref_town.job_caps[&"farming"] == TownState.MAX_JOB_CAP,
+        "Cap input clamps to the maximum")
+    pref_town.set_job_cap(&"farming", -3)
+    check(pref_town.job_caps[&"farming"] == -1
+        and pref_town.job_assignment().get(Vector2i(4, 4), 0) == 2,
+        "Negative cap input means unlimited")
+    pref_town.reset()
+    check(pref_town.job_category_order[0] == &"farming"
+        and pref_town.job_caps[&"farming"] == -1 and pref_town.job_caps[&"lumber"] == -1,
+        "Reset restores job preferences")
+
     # P08：高地上建造——建筑基准抬升到地形高度，且可被拾取；高格选中高亮可见。
     await click_build(Vector2i(45, 10), main.build_farm_button)
     check(main.town.buildings.get(Vector2i(45, 10), &"") == &"farm", "Highland accepts farms (D18)")
@@ -528,7 +563,7 @@ func _run() -> void:
     check(migrated.map_size == Vector2i(16, 12) and migrated.terrain_height(Vector2i(13, 2)) == 0.5
         and migrated.is_water(Vector2i(1, 1)), "V1 migration gains legacy terrain")
     check(migrated.population == 0, "V1 migration starts without population")
-    check(migrated.job_category_order[0] == &"farming" and migrated.job_caps[&"farming"] == 0,
+    check(migrated.job_category_order[0] == &"farming" and migrated.job_caps[&"farming"] == -1,
         "Migration starts with default job preferences")
     var v2_data := {"version": 2, "wood": 30, "grain": 1, "worker_x": -1, "worker_y": -1,
         "buildings": [{"x": 6, "y": 6, "kind": "lumberyard", "progress": 0.1},
@@ -611,21 +646,20 @@ func _run() -> void:
     check(not main.paused and main.pause_button.text == "暂停经营", "Resume restores production")
 
     # E03.b GUI：岗位优先与人数上限按钮。
-    check(main.job_priority_button.visible and main.job_farm_cap_button.visible,
-        "Job preference buttons are visible")
+    check(main.job_priority_button.visible and main.job_farm_cap_spin.visible,
+        "Job preference controls are visible")
     await click_at(main.job_priority_button.get_global_rect().get_center())
     check(main.job_priority_button.text == "优先：伐木"
         and main.town.job_category_order[0] == &"lumber",
         "Priority button flips the order")
     await click_at(main.job_priority_button.get_global_rect().get_center())
     check(main.job_priority_button.text == "优先：农耕", "Priority button toggles back")
-    await click_at(main.job_farm_cap_button.get_global_rect().get_center())
-    check(main.job_farm_cap_button.text == "农耕：≤2" and main.town.job_caps[&"farming"] == 2,
-        "Farm cap button cycles to two")
-    for i in range(4):
-        await click_at(main.job_farm_cap_button.get_global_rect().get_center())
-    check(main.job_farm_cap_button.text == "农耕：不限" and main.town.job_caps[&"farming"] == 0,
-        "Farm cap cycles back to unlimited")
+    main.job_farm_cap_spin.value = 0
+    await process_frame
+    check(main.town.job_caps[&"farming"] == 0, "Farm cap spin zero bans the category")
+    main.job_farm_cap_spin.value = -1
+    await process_frame
+    check(main.town.job_caps[&"farming"] == -1, "Farm cap spin negative means unlimited")
 
     if "--capture" in OS.get_cmdline_user_args():
         if not main.showing_3d:

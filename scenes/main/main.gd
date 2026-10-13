@@ -41,8 +41,8 @@ var _left_press_position: Vector2 = Vector2.ZERO
 @onready var build_lumberyard_button: Button = $UI/BuildLumberyardButton
 @onready var build_house_button: Button = $UI/BuildHouseButton
 @onready var job_priority_button: Button = $UI/JobPriorityButton
-@onready var job_farm_cap_button: Button = $UI/JobFarmCapButton
-@onready var job_lumber_cap_button: Button = $UI/JobLumberCapButton
+@onready var job_farm_cap_spin: SpinBox = $UI/JobFarmCapSpin
+@onready var job_lumber_cap_spin: SpinBox = $UI/JobLumberCapSpin
 
 
 func _ready() -> void:
@@ -62,8 +62,8 @@ func _ready() -> void:
 	build_lumberyard_button.pressed.connect(_on_build_pressed.bind(&"lumberyard"))
 	build_house_button.pressed.connect(_on_build_pressed.bind(&"house"))
 	job_priority_button.pressed.connect(_on_job_priority_pressed)
-	job_farm_cap_button.pressed.connect(_on_job_cap_pressed.bind(&"farming"))
-	job_lumber_cap_button.pressed.connect(_on_job_cap_pressed.bind(&"lumber"))
+	job_farm_cap_spin.value_changed.connect(_on_job_cap_changed.bind(&"farming"))
+	job_lumber_cap_spin.value_changed.connect(_on_job_cap_changed.bind(&"lumber"))
 	var farm_def: BuildingDef = TownState.building_def(&"farm")
 	var lumber_def: BuildingDef = TownState.building_def(&"lumberyard")
 	build_farm_button.text = "建%s（%d木）" % [farm_def.display_name, farm_def.wood_cost]
@@ -268,16 +268,17 @@ func _on_job_priority_pressed() -> void:
 	_refresh_ui(message)
 
 
-func _on_job_cap_pressed(category: StringName) -> void:
-	var message: String = town.cycle_job_cap(category)
+func _on_job_cap_changed(value: float, category: StringName) -> void:
+	var message: String = town.set_job_cap(category, int(value))
 	_refresh_job_buttons()
 	_refresh_ui(message)
 
 
 func _refresh_job_buttons() -> void:
 	job_priority_button.text = "优先：%s" % ("农耕" if town.job_category_order[0] == &"farming" else "伐木")
-	job_farm_cap_button.text = "农耕：%s" % ("不限" if town.job_caps[&"farming"] == 0 else "≤%d" % town.job_caps[&"farming"])
-	job_lumber_cap_button.text = "伐木：%s" % ("不限" if town.job_caps[&"lumber"] == 0 else "≤%d" % town.job_caps[&"lumber"])
+	# 直接回填数值时不触发 value_changed，避免读档/重置造成二次播报。
+	job_farm_cap_spin.set_value_no_signal(int(town.job_caps[&"farming"]))
+	job_lumber_cap_spin.set_value_no_signal(int(town.job_caps[&"lumber"]))
 
 
 func _toggle_pause() -> void:

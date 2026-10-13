@@ -88,8 +88,8 @@ var population: int = 0
 var move_in_progress: float = 0.0
 var food_buffer: float = 0.0
 # 岗位偏好（E03.b）：类别优先序与每类居民人数上限（0 = 不限；阮小二不受上限约束）。
-var job_category_order: Array[StringName] = DEFAULT_JOB_CATEGORY_ORDER
-var job_caps: Dictionary = DEFAULT_JOB_CAPS
+var job_category_order: Array[StringName] = DEFAULT_JOB_CATEGORY_ORDER.duplicate()
+var job_caps: Dictionary = DEFAULT_JOB_CAPS.duplicate()
 
 # 人口速率占位值（E02）：每 5 秒迁入 1 人，每人每秒耗 0.1 粮。
 const MOVE_IN_SECONDS: float = 5.0
@@ -101,8 +101,9 @@ const FOUNDING_POPULATION: int = 10
 # 岗位（E03.a/E03.b）：建筑种类 → 岗位类别；优先序与每类居民上限由玩家调整。
 const JOB_CATEGORIES: Dictionary = { &"farm": &"farming", &"lumberyard": &"lumber" }
 const DEFAULT_JOB_CATEGORY_ORDER: Array[StringName] = [&"farming", &"lumber"]
-const DEFAULT_JOB_CAPS: Dictionary = { &"farming": 0, &"lumber": 0 }   # 0 = 不限
-const JOB_CAP_STEPS: Array[int] = [0, 2, 4, 6, 8]
+const UNLIMITED_JOB_CAP: int = -1   # -1 = 不限；0 = 禁止该类岗位；正数 = 居民上限
+const DEFAULT_JOB_CAPS: Dictionary = { &"farming": UNLIMITED_JOB_CAP, &"lumber": UNLIMITED_JOB_CAP }
+const MAX_JOB_CAP: int = 999
 
 
 func _init() -> void:
@@ -345,8 +346,8 @@ func job_assignment() -> Dictionary:
 		if worker_cell == entry[3] and jobs > 0:
 			filled += 1
 		var room: int = jobs - filled
-		var cap: int = job_caps.get(category, 0)
-		if cap > 0:
+		var cap: int = job_caps.get(category, UNLIMITED_JOB_CAP)
+		if cap >= 0:
 			room = mini(room, cap - used.get(category, 0))
 		var take: int = mini(pool, maxi(room, 0))
 		filled += take
@@ -362,15 +363,16 @@ func cycle_job_priority() -> String:
 	return "岗位优先级已切换为 %s 优先。" % _category_display(job_category_order[0])
 
 
-func cycle_job_cap(category: StringName) -> String:
-	# 每类居民上限按档位循环：不限 → 2 → 4 → 6 → 8 → 不限。
+func set_job_cap(category: StringName, value: int) -> String:
+	# 直接设置每类居民上限（E03.b 调试向输入）：-1 = 不限；0 = 禁止；正数 = 上限；
+	# 超范围输入钳制到 [-1, MAX_JOB_CAP]。
 	var before := staffed_population()
-	var index: int = JOB_CAP_STEPS.find(job_caps.get(category, 0))
-	job_caps[category] = JOB_CAP_STEPS[(index + 1) % JOB_CAP_STEPS.size()]
+	var cap: int = clampi(value, UNLIMITED_JOB_CAP, MAX_JOB_CAP)
+	job_caps[category] = cap
 	var moved: int = before - staffed_population()
 	var effect: String = "，%d 名居民转为闲人。" % moved if moved > 0 else "。"
-	return "%s岗位居民上限已调整为 %s%s" % [
-		_category_display(category), _cap_display(job_caps[category]), effect,
+	return "%s岗位居民上限已设置为 %s%s" % [
+		_category_display(category), _cap_display(cap), effect,
 	]
 
 
@@ -379,7 +381,7 @@ func _category_display(category: StringName) -> String:
 
 
 func _cap_display(cap: int) -> String:
-	return "不限" if cap == 0 else "≤%d" % cap
+	return "不限" if cap < 0 else "≤%d" % cap
 
 
 func staffed_population() -> int:
@@ -606,7 +608,7 @@ func apply_save_data(data: Variant) -> String:
 	if version == SAVE_FORMAT_VERSION_V5:
 		# v5 → v6：补岗位偏好字段（旧档使用默认优先序与不限上限）。
 		data["job_order"] = ["farming", "lumber"]
-		data["job_caps"] = { "farming": 0, "lumber": 0 }
+		data["job_caps"] = { "farming": -1, "lumber": -1 }
 		data["version"] = SAVE_FORMAT_VERSION
 	var size_result := _parse_map_size(data.get("map_size"))
 	if size_result.has("error"):
@@ -691,7 +693,7 @@ func apply_save_data(data: Variant) -> String:
 			if not JOB_CATEGORIES.values().has(category):
 				return "存档中的岗位上限损坏。"
 			var value := int(caps_raw[key])
-			if value < 0:
+			if value < UNLIMITED_JOB_CAP:
 				return "存档中的岗位上限损坏。"
 			loaded_caps[category] = value
 	for category: StringName in JOB_CATEGORIES.values():
@@ -864,8 +866,8 @@ func reset() -> void:
 	population = 0
 	move_in_progress = 0.0
 	food_buffer = 0.0
-	job_category_order = DEFAULT_JOB_CATEGORY_ORDER
-	job_caps = DEFAULT_JOB_CAPS
+	job_category_order = DEFAULT_JOB_CATEGORY_ORDER.duplicate()
+	job_caps = DEFAULT_JOB_CAPS.duplicate()
 	_reset_preset()
 
 

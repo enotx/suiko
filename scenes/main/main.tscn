@@ -114,19 +114,29 @@ offset_right = 704.0
 offset_bottom = 472.0
 text = "优先：农耕"
 
-[node name="JobFarmCapButton" type="Button" parent="UI"]
+[node name="JobFarmCapSpin" type="SpinBox" parent="UI"]
 offset_left = 708.0
 offset_top = 436.0
 offset_right = 817.0
 offset_bottom = 472.0
-text = "农耕：不限"
+min_value = -1.0
+max_value = 999.0
+step = 1.0
+value = 0.0
+prefix = "农耕≤"
+suffix = "人"
 
-[node name="JobLumberCapButton" type="Button" parent="UI"]
+[node name="JobLumberCapSpin" type="SpinBox" parent="UI"]
 offset_left = 821.0
 offset_top = 436.0
 offset_right = 930.0
 offset_bottom = 472.0
-text = "伐木：不限"
+min_value = -1.0
+max_value = 999.0
+step = 1.0
+value = 0.0
+prefix = "伐木≤"
+suffix = "人"
 
 [node name="DeselectButton" type="Button" parent="UI"]
 offset_left = 595.0
