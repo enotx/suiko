@@ -31,7 +31,7 @@
 | E01 | 可扩展地图与地形（a：调色板布局图+大地图+相机；b：多格占地） | E00 | 已验收 | 本会话 agent |
 | E02 | 人口与民居 | E01 | 已验收 | 本会话 agent |
 | E03 | 岗位与自动填岗（a：自动填岗+按填充率产出；b：类别优先级/人数上限界面） | E02 | 已验收 | 本会话 agent |
-| E04 | 施工与三级升级（a：施工队列/工期/并行/取消/升级；b：民居自动升级+批量入口） | E03 | a 待验收 / b 待开始 | 本会话 agent |
+| E04 | 施工与三级升级（a：施工队列/工期/并行/取消/升级；b：民居自动升级+批量入口） | E03 | a 已验收 / b 进行中 | 本会话 agent |
 | E05 | 民生供给 | E03 | 待开始 | — |
 | E06 | 道路与水路 | E05 | 待开始 | — |
 | E07 | 繁荣度与名声 | E05、E06 | 待开始 | — |
@@ -73,7 +73,7 @@
 
 ### E04 · 施工与三级升级
 
-- E04.a（已实现，待验收）：建造与升级都进入施工队列（BuildingDef 增 max_level/jobs_per_level/capacity_per_level/build_seconds/upgrade_seconds/upgrade_wood_cost）；2 名建筑工并行（临时常量 BUILDERS=2），无空位自动排队、完工自动顶上；未落成工地占格、不产出、不提供容量岗位，2D/3D 显示工地与进度条；生产建筑三级（岗位 2/3/4），升级费用 40 木、工期 20 秒（临时数值）；面板显示施工进度/建筑等级（Lv 角标），升级与取消（全额退款）按钮按上下文出现；advance_time 切片加入施工完成事件（长步与逐帧一致）；Main 按施工签名低频刷新视图与按钮；存档 v7（+building_levels/construction_queue，v1–v6 自动迁移）。
+- E04.a（已验收）：建造与升级都进入施工队列
 - E04.b（待开始）：民居自动升级（住满自动排队）与批量升级入口。
 - 验证：无头与 Xvfb 图形模式 `tests/test_dual_view.gd` PASS（新增：工地占格、并行 2 与排队顶替、按各自工期完工、升级扣费/完工/取消退款/拒绝重复、v6 迁移无施工、GUI 升级取消净支出 0）。
 - 用户验收：建造有工期与工地进度，2 个同时施工、其余排队；升级 Lv2/Lv3 后岗位与产出变化；取消全额退款；存读档恢复工地进度与等级。
@@ -462,17 +462,18 @@
 - 用户验收依据：2026-10-12 用户对上限直接输入与新语义回复"已验证通过，继续吧"。
 - 验收提交/标签：本次验收记录提交 / `accepted/e03.b`。
 - 实现提交：`ca1e586`（feat(E03.b)）；修复提交 `7361f74`（D30+上限反馈可见化）、`0f5f642`（D31 SpinBox 直接输入）。
-- 用户验收依据：待验收。
+- 用户验收依据：2026-10-12 用户回复"验收通过，请继续"。
+- 验收提交/标签：本次验收记录提交 / `accepted/e04.a`。
 - 遗留：上限档位与优先序为全局两项（不做每建筑微调）；居民仍无个体身份；数值均为临时占位。
 
 ### E04.a
 
-- 负责人：本会话 agent；状态：待验收。
+- 负责人：本会话 agent；状态：已验收。
 - 开工回滚点：`0f5f642`（E03.b 最终修复提交，干净 HEAD，已推送远端）。
 - 范围与依赖：E03 全部验收；E04.a 为施工队列与三级升级本体，民居自动升级/批量入口拆至 E04.b。
 - 实际完成：BuildingDef 增 max_level/jobs_per_level/capacity_per_level/build_seconds/upgrade_seconds/upgrade_wood_cost 与 jobs_at/capacity_at；TownState 增 construction_queue/building_levels/next_seq/BUILDERS=2 与 queue_build/queue_upgrade/cancel_construction/_promote_queue/has_pending_construction/construction_entry_at/construction_signature，building_origin_at 计入工地占格，advance_time 切片加入施工完成事件（完工/迁入均按确定时刻分段）；population_cap/job_assignment 按等级取值；存档 v7（+等级与队列，v1–v6 自动迁移，非法/冲突条目让位）；2D 工地覆盖与进度标记、3D 基座+进度条、Lv 角标与等级小块；Main 增升级/取消按钮（按上下文出现）、施工签名低频刷新视图与按钮；try_build 移除（建造统一入队）。
 - 验证：无头与 Xvfb 图形模式 `tests/test_dual_view.gd` PASS（新增：工地占格与开工/排队/顶替、各自工期完工、升级扣费与完工到 Lv2、取消全额退款、重复施工拒绝、v6 迁移；既有建造类断言全部改写为排队+推进完工）。
-- 实现提交：待验收记录补记 SHA。
+- 实现提交：`3919e7f`（feat(E04.a): construction queue with timed builds, upgrades and cancellation）。
 - 用户验收依据：待验收。
 - 遗留：建筑工数量与工期/费用均为临时占位；升级期间建筑照常产出（简化规则）；工地无独立脚手架造型；民居自动升级与批量升级入口在 E04.b。
 
