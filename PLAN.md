@@ -437,6 +437,8 @@
 - 范围与依赖：E02 已验收；用户 2026-10-12 回复"验证通过"后按 E 路线推进 E03，拆 a/b。
 - 实际完成：BuildingDef 增 `jobs`/`job_rate`（validate_defs 校验非负），farm/lumberyard 各 2 岗、每岗 +1/秒（临时数值）；TownState 增 `JOB_CATEGORIES`/`JOB_CATEGORY_ORDER`（临时固定 农耕→伐木）与 `job_assignment()`（派生分配：阮小二占一岗、居民按类别与格子序填充，不落存档）、`staffed_population()`、`building_jobs_filled()`；`advance_time` 重构为以迁入事件为切片边界，段内生产（base+已填岗位×job_rate）与耗粮按段积分，长步与逐帧一致；worked_rate 退役不再参与计算；面板对有岗建筑显示"岗位：X/Y·阮小二在此"，HUD 增就业数。
 - 验证：无头与 Xvfb 图形模式 `tests/test_dual_view.gd` PASS（新增：填充顺序、就业/闲人、满岗产出、阮小二占岗与撤回回落；既有 D13 速率断言原样通过）。
+- 需修改历史：2026-10-12 用户验收时反馈两点——(1) 农田/伐木场/民居应为 2×2 占地；(2) 开局无居民且迁入要求余粮，第一轮循环起不来。已修复：三个配表 footprint 改 2×2（2D/3D 造型按占地自适应、占地扩张让位迁移泛化，D28）；新增 FOUNDING_POPULATION=10 前 10 名居民只要求空房无条件迁入（D29，暂定数值）。
+- 用户验收依据：待复验两点修复与 E03.a 本体。
 - 实现提交：待验收记录补记 SHA。
 - 用户验收依据：待验收。
 - 遗留：类别优先序固定为 农耕→伐木（临时），人数上限与优先级界面在 E03.b；居民尚无个体身份（跟随 E03.b/E08 决定）；worked_rate 字段退役保留。
