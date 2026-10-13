@@ -100,6 +100,20 @@ offset_right = 930.0
 offset_bottom = 352.0
 text = "建伐木场（20木）"
 
+[node name="UpgradeButton" type="Button" parent="UI"]
+offset_left = 595.0
+offset_top = 316.0
+offset_right = 930.0
+offset_bottom = 352.0
+text = "升级到 Lv2（40木）"
+
+[node name="CancelSiteButton" type="Button" parent="UI"]
+offset_left = 595.0
+offset_top = 316.0
+offset_right = 930.0
+offset_bottom = 352.0
+text = "取消施工（全额退款）"
+
 [node name="BuildHouseButton" type="Button" parent="UI"]
 offset_left = 595.0
 offset_top = 356.0

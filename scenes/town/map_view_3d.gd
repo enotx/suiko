@@ -229,12 +229,45 @@ func refresh() -> void:
 				_build_house(cell)
 			&"hq":
 				_build_hq(cell)
+	# 工地：基座板 + 随进度伸长的绿色进度条（E04）。
+	for entry: Dictionary in town.construction_queue:
+		var site_def: BuildingDef = town.building_def(entry["def_id"])
+		if site_def == null:
+			continue
+		var site_origin: Vector2i = entry["origin"]
+		var site_size := _footprint_size_for(site_def)
+		var site_origin_v := Vector3(site_origin.x, town.terrain_height(site_origin), site_origin.y)
+		var site_center := Vector3(site_size.x * 0.5, 0.0, site_size.y * 0.5)
+		var fill: Color = Color(0.85, 0.7, 0.25) if entry["active"] else Color(0.5, 0.5, 0.55)
+		_box(buildings_root, site_origin_v + site_center + Vector3(0.0, 0.03, 0.0),
+			Vector3(site_size.x - 0.1, 0.06, site_size.y - 0.1), _material(fill), site_origin)
+		var span: float = site_size.x - 0.2
+		var bar_w: float = maxf(0.1, span * clampf(float(entry["progress"]), 0.05, 1.0))
+		_box(buildings_root,
+			site_origin_v + Vector3(site_size.x * 0.5 - span * 0.5 + bar_w * 0.5, 0.08, site_size.y - 0.12),
+			Vector3(bar_w, 0.06, 0.12), _material(Color("7ec97e")), site_origin)
+	# 等级小块：Lv≥2 的建筑在前缘摆 (level-1) 个金色小方块。
+	for origin: Vector2i in town.buildings:
+		var level: int = town.building_level(origin)
+		if level < 2:
+			continue
+		var bdef: BuildingDef = town.building_def(town.buildings[origin])
+		var bsize := _footprint_size_for(bdef)
+		var borigin := Vector3(origin.x, town.terrain_height(origin), origin.y)
+		for i: int in range(level - 1):
+			_box(buildings_root,
+				borigin + Vector3(0.35 + i * 0.22, 0.08, bsize.y - 0.12),
+				Vector3(0.14, 0.14, 0.14), _material(Color("ffd75e")), origin)
 	_update_selection_mark()
 
 
 func rebuild_all() -> void:
 	_rebuild_terrain()
 	refresh()
+
+
+func _footprint_size_for(def: BuildingDef) -> Vector2:
+	return Vector2(def.footprint) if def != null else Vector2.ONE
 
 
 func _footprint_size(cell: Vector2i) -> Vector2:

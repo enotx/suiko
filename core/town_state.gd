@@ -8,7 +8,8 @@ const STARTING_WOOD: int = 100
 const INVALID_CELL: Vector2i = Vector2i(-1, -1)
 const WORKER_NAME: String = "阮小二"
 const PROGRESS_UNIT: float = 1.0
-const SAVE_FORMAT_VERSION: int = 6
+const SAVE_FORMAT_VERSION: int = 7
+const SAVE_FORMAT_VERSION_V6: int = 6
 const SAVE_FORMAT_VERSION_V5: int = 5
 const SAVE_FORMAT_VERSION_V4: int = 4
 const SAVE_FORMAT_VERSION_V3: int = 3
@@ -90,6 +91,11 @@ var food_buffer: float = 0.0
 # 岗位偏好（E03.b）：类别优先序与每类居民人数上限（0 = 不限；阮小二不受上限约束）。
 var job_category_order: Array[StringName] = DEFAULT_JOB_CATEGORY_ORDER.duplicate()
 var job_caps: Dictionary = DEFAULT_JOB_CAPS.duplicate()
+# 施工队列（E04）：build=新建（落成前不入 buildings），upgrade=对既有建筑升级。
+# 条目字段：seq/action(&"build"|&"upgrade")/def_id/origin/level(目标等级)/progress/active。
+var construction_queue: Array[Dictionary] = []
+var building_levels: Dictionary = {}   # 锚点 → 等级（缺省 1）
+var next_seq: int = 1
 
 # 人口速率占位值（E02）：每 5 秒迁入 1 人，每人每秒耗 0.1 粮。
 const MOVE_IN_SECONDS: float = 5.0
@@ -104,6 +110,8 @@ const DEFAULT_JOB_CATEGORY_ORDER: Array[StringName] = [&"farming", &"lumber"]
 const UNLIMITED_JOB_CAP: int = -1   # -1 = 不限；0 = 禁止该类岗位；正数 = 居民上限
 const DEFAULT_JOB_CAPS: Dictionary = { &"farming": UNLIMITED_JOB_CAP, &"lumber": UNLIMITED_JOB_CAP }
 const MAX_JOB_CAP: int = 999
+# 并行施工位（E04，临时数值）：同时施工的建筑数量，其余项目排队。
+const BUILDERS: int = 2
 
 
 func _init() -> void:
@@ -140,6 +148,16 @@ static func validate_defs() -> Array[String]:
 			problems.append("建筑 %s 的住房容量不能为负" % id)
 		if def.jobs < 0 or def.job_rate < 0.0:
 			problems.append("建筑 %s 的岗位数或岗位产出不能为负" % id)
+		if def.max_level < 1:
+			problems.append("建筑 %s 的最高等级至少为 1" % id)
+		if def.build_seconds < 0.0 or def.upgrade_seconds < 0.0 or def.upgrade_wood_cost < 0:
+			problems.append("建筑 %s 的工期或升级费用为负" % id)
+		for value: int in def.jobs_per_level:
+			if value < 0:
+				problems.append("建筑 %s 的等级岗位数为负" % id)
+		for value: int in def.capacity_per_level:
+			if value < 0:
+				problems.append("建筑 %s 的等级容量为负" % id)
 	return problems
 
 
@@ -246,10 +264,19 @@ func building_name(cell: Vector2i) -> String:
 
 
 ## 覆盖此格的建筑锚点；没有则 INVALID_CELL。建筑数量少，线性查找足够。
+func building_level(origin: Vector2i) -> int:
+	return building_levels.get(origin, 1)
+
+
 func building_origin_at(cell: Vector2i) -> Vector2i:
 	for origin: Vector2i in buildings:
 		if cell in _def_covered_cells(origin, buildings[origin]):
 			return origin
+	for entry: Dictionary in construction_queue:
+		var def := building_def(entry["def_id"])
+		if entry["action"] == &"build" and def != null \
+				and cell in covered_cells(entry["origin"], def.footprint):
+			return entry["origin"]
 	return INVALID_CELL
 
 
@@ -270,8 +297,10 @@ func advance_time(delta: float) -> void:
 	var remaining: float = delta
 	while remaining > 0.0000001:
 		var segment: float = minf(remaining, _time_to_next_arrival())
+		segment = minf(segment, _time_to_next_construction_completion())
 		_produce(segment)
 		_arrive(segment)
+		_advance_construction(segment)
 		remaining -= segment
 
 
@@ -341,7 +370,7 @@ func job_assignment() -> Dictionary:
 	for entry: Array in entries:
 		var category: StringName = entry[4]
 		var def := building_def(buildings[entry[3]])
-		var jobs: int = def.jobs if def != null else 0
+		var jobs: int = def.jobs_at(building_level(entry[3])) if def != null else 0
 		var filled := 0
 		if worker_cell == entry[3] and jobs > 0:
 			filled += 1
@@ -384,6 +413,153 @@ func _cap_display(cap: int) -> String:
 	return "不限" if cap < 0 else "≤%d" % cap
 
 
+func _time_to_next_construction_completion() -> float:
+	var best: float = INF
+	for entry: Dictionary in construction_queue:
+		if not entry["active"]:
+			continue
+		var def := building_def(entry["def_id"])
+		var duration: float = maxf(0.0001, def.build_seconds if entry["action"] == &"build" else def.upgrade_seconds)
+		best = minf(best, (1.0 - entry["progress"]) * duration)
+	return best
+
+
+func _advance_construction(segment: float) -> void:
+	var finished: Array[Dictionary] = []
+	for entry: Dictionary in construction_queue:
+		if not entry["active"]:
+			continue
+		var def := building_def(entry["def_id"])
+		var duration: float = maxf(0.0001, def.build_seconds if entry["action"] == &"build" else def.upgrade_seconds)
+		entry["progress"] += segment / duration
+		if entry["progress"] >= 1.0 - 0.0000001:
+			entry["progress"] = 1.0
+			finished.append(entry)
+	for entry: Dictionary in finished:
+		construction_queue.erase(entry)
+		if entry["action"] == &"build":
+			buildings[entry["origin"]] = entry["def_id"]
+			farm_progress[entry["origin"]] = 0.0
+		else:
+			building_levels[entry["origin"]] = entry["level"]
+	_promote_queue()
+
+
+func _active_builders() -> int:
+	var count := 0
+	for entry: Dictionary in construction_queue:
+		if entry["active"]:
+			count += 1
+	return count
+
+
+func _promote_queue() -> void:
+	for entry: Dictionary in construction_queue:
+		if _active_builders() >= BUILDERS:
+			break
+		if not entry["active"]:
+			entry["active"] = true
+
+
+func has_pending_construction(origin: Vector2i) -> bool:
+	for entry: Dictionary in construction_queue:
+		if entry["origin"] == origin:
+			return true
+	return false
+
+
+func construction_entry_at(origin: Vector2i) -> Dictionary:
+	for entry: Dictionary in construction_queue:
+		if entry["origin"] == origin:
+			return entry
+	return {}
+
+
+func _unique_in_queue(def_id: StringName) -> bool:
+	for entry: Dictionary in construction_queue:
+		if entry["action"] == &"build" and entry["def_id"] == def_id:
+			return true
+	return false
+
+
+## 新建入队：验证通过即扣款，建筑在工期结束后落成。
+func queue_build(cell: Vector2i, def_id: StringName) -> String:
+	var def := building_def(def_id)
+	if def == null:
+		return "未知建筑类型。"
+	if def.unique and (buildings.values().has(def_id) or _unique_in_queue(def_id)):
+		return "%s全图只能有一座。" % def.display_name
+	for covered: Vector2i in covered_cells(cell, def.footprint):
+		if not is_inside(covered):
+			return "请在地图范围内建造。"
+		if is_water(covered):
+			return "水面不能建造%s。" % def.display_name
+		if is_resource(covered):
+			return "资源区块暂时不能建造%s。" % def.display_name
+		if building_origin_at(covered) != INVALID_CELL:
+			return "该位置与已有建筑或工地重叠。"
+	if wood < def.wood_cost:
+		return "木材不足，点击重置可以重新练习。"
+	wood -= def.wood_cost
+	var active: bool = _active_builders() < BUILDERS
+	construction_queue.append({
+		"seq": next_seq, "action": &"build", "def_id": def_id,
+		"origin": cell, "level": 1, "progress": 0.0, "active": active,
+	})
+	next_seq += 1
+	_promote_queue()
+	var where: String = "已开工" if active else "已加入施工队列"
+	return "已在 (%d, %d) %s%s（占地 %d×%d，工期 %d 秒）。" % [
+		cell.x, cell.y, where, def.display_name, def.footprint.x, def.footprint.y, int(def.build_seconds),
+	]
+
+
+## 升级入队：对既有建筑，费用立即扣除，完工后等级 +1。
+func queue_upgrade(origin: Vector2i) -> String:
+	var kind: StringName = buildings.get(origin, &"")
+	var def := building_def(kind)
+	if def == null:
+		return "那里没有可升级的建筑。"
+	var level := building_level(origin)
+	if def.max_level <= level:
+		return "%s已满级。" % def.display_name
+	if has_pending_construction(origin):
+		return "这里已经有施工在进行。"
+	if wood < def.upgrade_wood_cost:
+		return "木材不足。"
+	wood -= def.upgrade_wood_cost
+	var active: bool = _active_builders() < BUILDERS
+	construction_queue.append({
+		"seq": next_seq, "action": &"upgrade", "def_id": kind,
+		"origin": origin, "level": level + 1, "progress": 0.0, "active": active,
+	})
+	next_seq += 1
+	_promote_queue()
+	return "%s开始升级到 Lv%d（工期 %d 秒）。" % [def.display_name, level + 1, int(def.upgrade_seconds)]
+
+
+## 取消工地或升级：按动作全额退款，并让排队项目顶上。
+func cancel_construction(origin: Vector2i) -> String:
+	for entry: Dictionary in construction_queue:
+		if entry["origin"] == origin:
+			var def := building_def(entry["def_id"])
+			var refund: int = def.wood_cost if entry["action"] == &"build" else def.upgrade_wood_cost
+			construction_queue.erase(entry)
+			wood += refund
+			_promote_queue()
+			return "已取消施工，退还 %d 木材。" % refund
+	return "这里没有正在进行的施工。"
+
+
+## 施工状态签名：队列长度/顺序、激活位、进度百分比或建筑数变化时值会改变，
+## 供表现层低频检测“需要重绘工地/按钮”。
+func construction_signature() -> int:
+	var sig: int = buildings.size() * 101 + building_levels.size() * 7
+	for entry: Dictionary in construction_queue:
+		sig += entry["seq"] * 13 + (13 if entry["active"] else 0) + int(entry["progress"] * 100.0)
+	return sig
+
+
 func staffed_population() -> int:
 	# 就业居民数（阮小二不计入，他不是人口）。
 	var total := 0
@@ -407,10 +583,10 @@ func building_jobs_filled(origin: Vector2i) -> int:
 func population_cap() -> int:
 	# 人口上限 = 全部建筑住房容量之和（当前只有民居提供）。
 	var cap: int = 0
-	for kind: StringName in buildings.values():
-		var def := building_def(kind)
+	for origin: Vector2i in buildings:
+		var def := building_def(buildings[origin])
 		if def != null:
-			cap += def.capacity
+			cap += def.capacity_at(building_level(origin))
 	return cap
 
 
@@ -597,18 +773,25 @@ func apply_save_data(data: Variant) -> String:
 		version = SAVE_FORMAT_VERSION_V4
 		data["version"] = SAVE_FORMAT_VERSION_V4
 	elif version != SAVE_FORMAT_VERSION_V4 and version != SAVE_FORMAT_VERSION_V5 \
-			and version != SAVE_FORMAT_VERSION:
+			and version != SAVE_FORMAT_VERSION_V6 and version != SAVE_FORMAT_VERSION:
 		return "存档版本不兼容。"
 	if version == SAVE_FORMAT_VERSION_V4:
 		# v4 → v5：补人口字段（旧档还没有人口概念，迁移后从零开始）。
 		data["population"] = 0
 		data["move_in_progress"] = 0.0
 		data["food_buffer"] = 0.0
+		version = SAVE_FORMAT_VERSION_V5
 		data["version"] = SAVE_FORMAT_VERSION_V5
 	if version == SAVE_FORMAT_VERSION_V5:
-		# v5 → v6：补岗位偏好字段（旧档使用默认优先序与不限上限）。
+		# v5 → v6：补岗位偏好字段（旧档使用默认优先序与不限上限 -1）。
 		data["job_order"] = ["farming", "lumber"]
 		data["job_caps"] = { "farming": -1, "lumber": -1 }
+		version = SAVE_FORMAT_VERSION_V6
+		data["version"] = SAVE_FORMAT_VERSION_V6
+	if version == SAVE_FORMAT_VERSION_V6:
+		# v6 → v7：补施工队列与建筑等级（旧档全部 Lv1 且无施工）。
+		data["building_levels"] = []
+		data["construction_queue"] = []
 		data["version"] = SAVE_FORMAT_VERSION
 	var size_result := _parse_map_size(data.get("map_size"))
 	if size_result.has("error"):
@@ -661,6 +844,77 @@ func apply_save_data(data: Variant) -> String:
 	var loaded_worker := Vector2i(int(data.get("worker_x", -99)), int(data.get("worker_y", -99)))
 	if loaded_worker != INVALID_CELL and not loaded_buildings.has(loaded_worker):
 		return "存档中的分工数据损坏。"
+	# 等级与施工队列校验（v7）：结构损坏整体拒载；与占位/地形冲突的条目让位移除。
+	var loaded_levels: Dictionary = {}
+	var levels_raw: Variant = data.get("building_levels", null)
+	if levels_raw != null:
+		if typeof(levels_raw) != TYPE_ARRAY:
+			return "存档中的建筑等级数据损坏。"
+		for entry: Variant in levels_raw:
+			if typeof(entry) != TYPE_DICTIONARY:
+				return "存档中的建筑等级数据损坏。"
+			var level_origin := Vector2i(int(entry.get("x", -99)), int(entry.get("y", -99)))
+			var level_value := int(entry.get("level", 1))
+			var level_def := building_def(loaded_buildings.get(level_origin, &""))
+			if level_def == null or level_value < 1 or level_value > level_def.max_level \
+					or loaded_levels.has(level_origin):
+				return "存档中的建筑等级数据损坏。"
+			loaded_levels[level_origin] = level_value
+	var loaded_queue: Array[Dictionary] = []
+	var next_seq_value := 1
+	var queue_raw: Variant = data.get("construction_queue", null)
+	if queue_raw != null:
+		if typeof(queue_raw) != TYPE_ARRAY:
+			return "存档中的施工队列数据损坏。"
+		var queue_occupied: Dictionary = {}
+		for origin: Vector2i in loaded_buildings:
+			for covered: Vector2i in _def_covered_cells(origin, loaded_buildings[origin]):
+				queue_occupied[covered] = origin
+		var max_seq := 0
+		var active_count := 0
+		var seen_origins: Dictionary = {}
+		for entry: Variant in queue_raw:
+			if typeof(entry) != TYPE_DICTIONARY:
+				return "存档中的施工队列数据损坏。"
+			var seq := int(entry.get("seq", 0))
+			var action := StringName(str(entry.get("action", "")))
+			var q_def := building_def(StringName(str(entry.get("def", ""))))
+			var q_origin := Vector2i(int(entry.get("x", -99)), int(entry.get("y", -99)))
+			var q_level := int(entry.get("level", 1))
+			var progress := float(entry.get("progress", 0.0))
+			var is_active: bool = bool(entry.get("active", false))
+			if seq < 1 or (action != &"build" and action != &"upgrade") or q_def == null \
+					or progress < 0.0 or progress >= 1.0:
+				return "存档中的施工队列数据损坏。"
+			max_seq = maxi(max_seq, seq)
+			if action == &"build":
+				var placeable := true
+				for covered: Vector2i in covered_cells(q_origin, q_def.footprint):
+					if not _in_bounds(covered, size) \
+							or not _cell_buildable(covered, parsed_terrain, size) \
+							or queue_occupied.has(covered):
+						placeable = false
+						break
+				if not placeable:
+					continue   # 让位：占地冲突的工地条目移除
+				for covered: Vector2i in covered_cells(q_origin, q_def.footprint):
+					queue_occupied[covered] = q_origin
+			else:
+				# 升级条目：目标建筑必须在档且等级衔接；目标已让位则条目移除。
+				if not loaded_buildings.has(q_origin) \
+						or q_level != loaded_levels.get(q_origin, 1) + 1 \
+						or q_level > q_def.max_level or seen_origins.has(q_origin):
+					continue
+			if is_active:
+				active_count += 1
+			seen_origins[q_origin] = true
+			loaded_queue.append({
+				"seq": seq, "action": action, "def_id": q_def.id,
+				"origin": q_origin, "level": q_level, "progress": progress, "active": is_active,
+			})
+		if active_count > BUILDERS:
+			return "存档中的施工队列数据损坏。"
+		next_seq_value = max_seq + 1
 	var loaded_population := int(data.get("population", -1))
 	var loaded_move_in := float(data.get("move_in_progress", -1.0))
 	var loaded_food_buffer := float(data.get("food_buffer", -1.0))
@@ -714,6 +968,9 @@ func apply_save_data(data: Variant) -> String:
 	food_buffer = loaded_food_buffer
 	job_category_order = loaded_order
 	job_caps = loaded_caps
+	building_levels = loaded_levels
+	construction_queue = loaded_queue
+	next_seq = next_seq_value
 	terrain = parsed_terrain
 	map_size = size
 	map_name = loaded_name
@@ -833,32 +1090,6 @@ func can_build_at(cell: Vector2i, def_id: StringName) -> bool:
 	return true
 
 
-func try_build(cell: Vector2i, def_id: StringName) -> String:
-	# 验证全部通过后才扣资源；失败只返回原因，不改任何状态。
-	var def := building_def(def_id)
-	if def == null:
-		return "未知建筑类型。"
-	if def.unique and buildings.values().has(def_id):
-		return "%s全图只能有一座。" % def.display_name
-	for covered: Vector2i in covered_cells(cell, def.footprint):
-		if not is_inside(covered):
-			return "请在地图范围内建造。"
-		if is_water(covered):
-			return "水面不能建造%s。" % def.display_name
-		if is_resource(covered):
-			return "资源区块暂时不能建造%s。" % def.display_name
-		if building_origin_at(covered) != INVALID_CELL:
-			return "该位置与已有建筑重叠。"
-	if wood < def.wood_cost:
-		return "木材不足，点击重置可以重新练习。"
-
-	buildings[cell] = def_id
-	wood -= def.wood_cost
-	return "已在 (%d, %d) 建造%s（占地 %d×%d）。" % [
-		cell.x, cell.y, def.display_name, def.footprint.x, def.footprint.y,
-	]
-
-
 func reset() -> void:
 	wood = STARTING_WOOD
 	grain = 0
@@ -868,6 +1099,9 @@ func reset() -> void:
 	food_buffer = 0.0
 	job_category_order = DEFAULT_JOB_CATEGORY_ORDER.duplicate()
 	job_caps = DEFAULT_JOB_CAPS.duplicate()
+	construction_queue.clear()
+	building_levels.clear()
+	next_seq = 1
 	_reset_preset()
 
 

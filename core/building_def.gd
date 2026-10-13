@@ -18,3 +18,27 @@ extends Resource
 @export var jobs: int = 0
 ## 每个已填岗位的产出加成（/秒）。产出 = base_rate + 已填岗位数 x job_rate。
 @export var job_rate: float = 0.0
+## 最高等级（E04）：1 表示不可升级。
+@export var max_level: int = 1
+## 各等级岗位数（下标 0 = Lv1）。为空时所有等级都用 jobs。
+@export var jobs_per_level: Array[int] = []
+## 各等级住房容量（下标 0 = Lv1）。为空时所有等级都用 capacity。
+@export var capacity_per_level: Array[int] = []
+## 新建工期（秒，游戏时间）。0 表示瞬成。
+@export var build_seconds: float = 0.0
+## 升级工期（秒，游戏时间）。
+@export var upgrade_seconds: float = 0.0
+## 每次升级的木材费用（临时统一值）。
+@export var upgrade_wood_cost: int = 0
+
+
+func jobs_at(level: int) -> int:
+	if jobs_per_level.size() >= level and level >= 1:
+		return jobs_per_level[level - 1]
+	return jobs
+
+
+func capacity_at(level: int) -> int:
+	if capacity_per_level.size() >= level and level >= 1:
+		return capacity_per_level[level - 1]
+	return capacity

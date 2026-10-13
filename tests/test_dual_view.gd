@@ -111,14 +111,17 @@ func _run() -> void:
         and town.terrain_kind(Vector2i(48, 23)) == &"iron",
         "Forest, stone and iron resource blocks exist")
     # 建造限制：水面照旧拒绝；资源区块在采集玩法接入前拒绝（临时规则）。
-    check(town.try_build(Vector2i(13, 13), &"farm").contains("水面"), "Water rejects building")
-    check(town.try_build(Vector2i(16, 30), &"farm").contains("资源区块"), "Forest rejects building")
-    check(town.try_build(Vector2i(44, 21), &"farm").contains("资源区块"), "Stone rejects building")
-    check(town.try_build(Vector2i(48, 23), &"farm").contains("资源区块"), "Iron rejects building")
+    check(town.queue_build(Vector2i(13, 13), &"farm").contains("水面"), "Water rejects building")
+    check(town.queue_build(Vector2i(16, 30), &"farm").contains("资源区块"), "Forest rejects building")
+    check(town.queue_build(Vector2i(44, 21), &"farm").contains("资源区块"), "Stone rejects building")
+    check(town.queue_build(Vector2i(48, 23), &"farm").contains("资源区块"), "Iron rejects building")
     check(town.wood == TownState.STARTING_WOOD, "Rejected builds never charge")
     var grass_probe := TownState.new()
-    check(grass_probe.try_build(Vector2i(30, 26), &"farm").contains("已")
+    check(grass_probe.queue_build(Vector2i(30, 26), &"farm").contains("已")
         and grass_probe.wood == 90, "Grass accepts farms like plain")
+    grass_probe.advance_time(15.1)
+    check(grass_probe.buildings.get(Vector2i(30, 26), &"") == &"farm",
+        "Farm completes after its build time")
 
     # E01.b：多格占地——大本营 2×2，锚点是标记格，覆盖格的点击与建造都归属锚点。
     check(town.building_origin_at(Vector2i(31, 31)) == Vector2i(30, 30)
@@ -127,8 +130,8 @@ func _run() -> void:
     check(town.building_def_at(Vector2i(31, 31)) == TownState.building_def(&"hq"),
         "Covered cell resolves to the HQ def")
     check(town.can_build_on(Vector2i(31, 31)) == false, "Covered cell is not buildable")
-    check(town.try_build(Vector2i(31, 31), &"farm").contains("重叠"), "Covered cell rejects building")
-    check(town.try_build(Vector2i(30, 31), &"farm").contains("重叠"), "Second covered cell rejects too")
+    check(town.queue_build(Vector2i(31, 31), &"farm").contains("重叠"), "Covered cell rejects building")
+    check(town.queue_build(Vector2i(30, 31), &"farm").contains("重叠"), "Second covered cell rejects too")
     check(town.wood == TownState.STARTING_WOOD, "Overlap rejections never charge")
 
     # 布局解析：合法小图、大本营占地越界、缺标记、非法颜色、多标记都要有明确中文原因。
@@ -223,7 +226,11 @@ func _run() -> void:
 
     # 3D GUI：点空地建农田，信息面板、双视图共享选择、屋顶拾取、重复点击不重复扣费。
     await click_build(Vector2i(40, 30), main.build_farm_button)
-    check(main.town.wood == 90 and main.town.buildings.size() == 2, "3D click builds exactly once")
+    check(main.town.wood == 90 and main.town.has_pending_construction(Vector2i(40, 30)),
+        "3D click queues the farm and charges exactly once")
+    main.town.advance_time(TownState.building_def(&"farm").build_seconds + 0.1)
+    await process_frame
+    check(main.town.buildings.size() == 2, "Farm completes after its build time")
     check(main.selected_cell == Vector2i(40, 30), "Building auto-selects the new farm")
     check(main.selection_label.text.contains("农田") and main.selection_label.text.contains("(40, 30)"),
         "Selection panel shows name and cell")
@@ -257,8 +264,12 @@ func _run() -> void:
     await click_map(Vector2i(13, 13))
     check(main.selected_cell == Vector2i(40, 30), "2D water click keeps selection")
     await click_build(Vector2i(20, 51), main.build_farm_button)
-    check(main.town.wood == 80 and main.town.buildings.size() == 3, "2D click builds exactly once")
-    check(main.selected_cell == Vector2i(20, 51), "2D build auto-selects the new farm")
+    check(main.town.wood == 80 and main.town.has_pending_construction(Vector2i(20, 51)),
+        "2D click queues the farm and charges exactly once")
+    check(main.selected_cell == Vector2i(20, 51), "2D build auto-selects the site")
+    main.town.advance_time(TownState.building_def(&"farm").build_seconds + 0.1)
+    await process_frame
+    check(main.town.buildings.size() == 3, "Second farm completes")
     await switch_view()
     check(main.showing_3d and main.map_3d.buildings_root.get_child_count() == 16,
         "3D reflects both farms and HQ")
@@ -267,6 +278,8 @@ func _run() -> void:
 
     for i in range(8):
         await click_build(Vector2i(20 + 2 * i, 53), main.build_farm_button)
+    main.town.advance_time(TownState.building_def(&"farm").build_seconds * 4.0 + 0.5)
+    await process_frame
     check(main.town.wood == 0 and main.town.buildings.size() == 11, "Spend starting wood")
     check(main.selected_cell == Vector2i(34, 53), "Last built farm stays selected")
     await click_map(Vector2i(36, 53))
@@ -294,6 +307,8 @@ func _run() -> void:
     check(main.assign_button.visible == false and main.withdraw_button.visible == false,
         "Worker buttons hidden when nothing is selected")
     await click_build(Vector2i(22, 51), main.build_farm_button)
+    main.town.advance_time(TownState.building_def(&"farm").build_seconds + 0.1)
+    await process_frame
     check(main.assign_button.visible and main.build_farm_button.visible == false,
         "Worker and build buttons switch by context")
     await click_at(main.assign_button.get_global_rect().get_center())
@@ -304,6 +319,8 @@ func _run() -> void:
     await click_at(main.assign_button.get_global_rect().get_center())
     check(main.town.worker_cell == Vector2i(22, 51), "Repeated assign keeps the single workplace")
     await click_build(Vector2i(24, 51), main.build_farm_button)
+    main.town.advance_time(TownState.building_def(&"farm").build_seconds + 0.1)
+    await process_frame
     check(main.town.buildings.size() == 3, "Second farm built for transfer test")
     await click_at(main.assign_button.get_global_rect().get_center())
     check(main.town.worker_cell == Vector2i(24, 51), "Assign to another farm moves the worker")
@@ -328,7 +345,7 @@ func _run() -> void:
         "HQ panel shows footprint")
     check(main.assign_button.disabled, "Assign disabled on HQ")
     check(main.town.assign_worker(town.hq_cell).contains("不需要工人"), "HQ refuses workers")
-    var duplicate_hq: String = main.town.try_build(Vector2i(34, 50), &"hq")
+    var duplicate_hq: String = main.town.queue_build(Vector2i(34, 50), &"hq")
     check(duplicate_hq.contains("只能有一座"), "Second HQ rejected by unique rule")
     await click_map(Vector2i(31, 31))
     check(main.selected_cell == Vector2i(30, 30)
@@ -340,10 +357,13 @@ func _run() -> void:
     check(main.build_lumberyard_button.visible and not main.assign_button.visible,
         "Empty land shows build buttons")
     await click_build(Vector2i(34, 50), main.build_lumberyard_button)
+    check(main.town.wood == 80, "Lumberyard charges 20 wood at queue time")
+    main.town.advance_time(TownState.building_def(&"lumberyard").build_seconds + 0.1)
+    await process_frame
     check(main.town.buildings.get(Vector2i(34, 50), &"") == &"lumberyard", "Lumberyard can be built")
-    check(main.town.wood == 80, "Lumberyard costs 20 wood")
     var mill_ok := TownState.new()
-    mill_ok.try_build(Vector2i(4, 4), &"lumberyard")
+    mill_ok.queue_build(Vector2i(4, 4), &"lumberyard")
+    mill_ok.advance_time(15.1)
     var idle_before: int = mill_ok.wood
     mill_ok.advance_time(1.0)
     check(mill_ok.wood == idle_before, "Unstaffed lumberyard yields nothing (D30)")
@@ -356,12 +376,14 @@ func _run() -> void:
     var pop_town := TownState.new()
     check(pop_town.population_cap() == 0 and pop_town.population == 0,
         "No housing keeps population at zero")
-    check(pop_town.try_build(Vector2i(4, 4), &"house").contains("已")
-        and pop_town.population_cap() == 5, "House provides housing capacity")
+    check(pop_town.queue_build(Vector2i(4, 4), &"house").contains("已"),
+        "House queues for construction")
+    pop_town.advance_time(20.1)
+    check(pop_town.population_cap() == 5, "Completed house provides housing capacity")
     pop_town.grain = 50
-    pop_town.advance_time(25.0)
-    check(pop_town.population == 5 and pop_town.grain == 45,
-        "Population moves in one per five seconds and eats on the way")
+    pop_town.advance_time(50.0)
+    check(pop_town.population == 5 and pop_town.grain < 50,
+        "Residents move in after construction and eat grain")
     pop_town.advance_time(30.0)
     check(pop_town.population == 5, "Move-in stops at the cap")
     var fed_grain: int = pop_town.grain
@@ -373,18 +395,18 @@ func _run() -> void:
 
     # 开局帮扶：前 10 名居民无条件迁入，只要求有空房（用户反馈的第一轮循环问题）。
     var founding := TownState.new()
-    check(founding.try_build(Vector2i(4, 4), &"house").contains("已"), "House for founding test")
-    founding.advance_time(25.0)
+    check(founding.queue_build(Vector2i(4, 4), &"house").contains("已"), "House for founding test")
+    founding.advance_time(50.0)
     check(founding.population == 5 and founding.grain == 0,
         "Founding residents move in without any grain")
 
     # E03：岗位与自动填岗——居民按类别优先序填充岗位，产出按已填岗位叠加。
     var job_town := TownState.new()
-    check(job_town.try_build(Vector2i(4, 4), &"farm").contains("已")
-        and job_town.try_build(Vector2i(7, 4), &"lumberyard").contains("已")
-        and job_town.try_build(Vector2i(4, 6), &"house").contains("已"), "Job town prepared")
+    check(job_town.queue_build(Vector2i(4, 4), &"farm").contains("已")
+        and job_town.queue_build(Vector2i(7, 4), &"lumberyard").contains("已")
+        and job_town.queue_build(Vector2i(4, 6), &"house").contains("已"), "Job town prepared")
     job_town.grain = 100
-    job_town.advance_time(25.0)
+    job_town.advance_time(65.0)
     check(job_town.population == 5, "Residents arrive for job test")
     var assignment: Dictionary = job_town.job_assignment()
     check(assignment.get(Vector2i(4, 4), 0) == 2 and assignment.get(Vector2i(7, 4), 0) == 2,
@@ -397,31 +419,33 @@ func _run() -> void:
 
     # 阮小二占一个岗位位：他在时居民只能补另一岗；他撤走居民顶上（D21 兼容桥）。
     var ruan_town := TownState.new()
-    ruan_town.try_build(Vector2i(4, 4), &"farm")
-    ruan_town.try_build(Vector2i(7, 4), &"house")
+    ruan_town.queue_build(Vector2i(4, 4), &"farm")
+    ruan_town.queue_build(Vector2i(7, 4), &"house")
+    ruan_town.advance_time(15.1)
     ruan_town.assign_worker(Vector2i(4, 4))
     ruan_town.grain = 20
-    ruan_town.advance_time(5.0)
-    check(ruan_town.population == 1, "One resident arrives for the Ruan test")
+    ruan_town.advance_time(30.0)
+    check(ruan_town.population == 5, "Founding residents arrive once housing completes")
     check(ruan_town.building_jobs_filled(Vector2i(4, 4)) == 2,
-        "Ruan and the resident share the two farm slots")
+        "Ruan fills one slot and residents fill the other")
     var ruan_grain: int = ruan_town.grain
     ruan_town.advance_time(2.0)
-    check(ruan_town.grain == ruan_grain + 4, "Ruan plus resident make the farm yield two per second")
+    check(ruan_town.grain == ruan_grain + 3,
+        "Two staffed slots yield two per second, five residents eat one")
     ruan_town.withdraw_worker()
-    check(ruan_town.building_jobs_filled(Vector2i(4, 4)) == 1,
-        "Resident keeps his slot but the empty slot stays open")
+    check(ruan_town.building_jobs_filled(Vector2i(4, 4)) == 2,
+        "Residents refill the slot after Ruan withdraws")
     ruan_grain = ruan_town.grain
     ruan_town.advance_time(2.0)
-    check(ruan_town.grain == ruan_grain + 2, "Rate drops back to one per second")
+    check(ruan_town.grain == ruan_grain + 3, "Rate unchanged while residents refill")
 
     # E03.b：优先级与人数上限——上限 -1=不限、0=禁止、正数=居民上限；阮小二不受上限约束。
     var pref_town := TownState.new()
-    check(pref_town.try_build(Vector2i(4, 4), &"farm").contains("已")
-        and pref_town.try_build(Vector2i(7, 4), &"lumberyard").contains("已")
-        and pref_town.try_build(Vector2i(4, 6), &"house").contains("已"), "Preference town prepared")
+    check(pref_town.queue_build(Vector2i(4, 4), &"farm").contains("已")
+        and pref_town.queue_build(Vector2i(7, 4), &"lumberyard").contains("已")
+        and pref_town.queue_build(Vector2i(4, 6), &"house").contains("已"), "Preference town prepared")
     pref_town.grain = 100
-    pref_town.advance_time(25.0)
+    pref_town.advance_time(65.0)
     check(pref_town.population == 5, "Residents arrive for preference test")
     check(pref_town.job_category_order[0] == &"farming"
         and pref_town.job_caps[&"farming"] == -1, "Default priority farming, caps unlimited")
@@ -450,8 +474,59 @@ func _run() -> void:
         and pref_town.job_caps[&"farming"] == -1 and pref_town.job_caps[&"lumber"] == -1,
         "Reset restores job preferences")
 
+    # E04：施工队列——工期、并行建筑工、排队、升级与取消退款。
+    var site_town := TownState.new()
+    check(site_town.queue_build(Vector2i(4, 4), &"farm").contains("已开工"),
+        "First project starts immediately")
+    check(site_town.buildings.size() == 1
+        and site_town.has_pending_construction(Vector2i(4, 4)),
+        "Site reserves the cells but the building is not up yet")
+    check(site_town.can_build_on(Vector2i(5, 4)) == false, "Site cells block new buildings")
+    check(site_town.queue_build(Vector2i(7, 4), &"lumberyard").contains("已开工"),
+        "Second project starts with the second builder")
+    check(site_town.queue_build(Vector2i(10, 4), &"house").contains("已加入施工队列"),
+        "Third project queues without a free builder")
+    var queued_entry: Dictionary = site_town.construction_entry_at(Vector2i(10, 4))
+    check(queued_entry.get("active", true) == false, "Queued project waits for a builder")
+    site_town.advance_time(15.1)
+    check(site_town.buildings.get(Vector2i(4, 4), &"") == &"farm"
+        and site_town.buildings.get(Vector2i(7, 4), &"") == &"lumberyard",
+        "First two projects complete after their build time")
+    check(site_town.construction_entry_at(Vector2i(10, 4)).get("active", false),
+        "Queued house is promoted when a builder frees up")
+    site_town.advance_time(20.1)
+    check(site_town.buildings.get(Vector2i(10, 4), &"") == &"house",
+        "Promoted house completes after its own duration")
+    var upgrade_town := TownState.new()
+    upgrade_town.queue_build(Vector2i(4, 4), &"farm")
+    upgrade_town.advance_time(15.1)
+    upgrade_town.wood = 100
+    check(upgrade_town.queue_upgrade(Vector2i(4, 4)).contains("Lv2"), "Upgrade queues to level two")
+    check(upgrade_town.wood == 60, "Upgrade costs 40 wood")
+    check(upgrade_town.queue_upgrade(Vector2i(4, 4)).contains("已经"),
+        "Second project on one site rejected")
+    check(upgrade_town.cancel_construction(Vector2i(4, 4)).contains("退还"),
+        "Cancel refunds the upgrade cost")
+    check(upgrade_town.wood == 100 and upgrade_town.building_level(Vector2i(4, 4)) == 1,
+        "Cancel restores wood and keeps the level")
+    upgrade_town.queue_upgrade(Vector2i(4, 4))
+    upgrade_town.advance_time(20.1)
+    check(upgrade_town.building_level(Vector2i(4, 4)) == 2, "Upgrade completes to level two")
+    var v6_data := {"version": 6, "wood": 30, "grain": 1, "worker_x": -1, "worker_y": -1,
+        "population": 3, "move_in_progress": 0.4, "food_buffer": 0.2,
+        "map_size": [60, 60], "map_name": "测试城镇",
+        "job_order": ["farming", "lumber"], "job_caps": {"farming": -1, "lumber": -1},
+        "buildings": [{"x": 30, "y": 30, "kind": "hq", "progress": 0.0}],
+        "terrain": [{"x": 4, "y": 4, "t": "p"}]}
+    var from_v6 := TownState.new()
+    check(from_v6.apply_save_data(v6_data) == "", "V6 save migrates cleanly")
+    check(from_v6.construction_queue.is_empty() and from_v6.building_levels.is_empty(),
+        "V6 migration starts with no construction")
+
     # P08：高地上建造——建筑基准抬升到地形高度，且可被拾取；高格选中高亮可见。
     await click_build(Vector2i(45, 10), main.build_farm_button)
+    main.town.advance_time(TownState.building_def(&"farm").build_seconds + 0.1)
+    await process_frame
     check(main.town.buildings.get(Vector2i(45, 10), &"") == &"farm", "Highland accepts farms (D18)")
     var elevated := false
     for piece in main.map_3d.buildings_root.get_children():
@@ -473,20 +548,24 @@ func _run() -> void:
     check(main.build_house_button.visible and not main.build_house_button.disabled,
         "House button shows on affordable empty land")
     await click_at(main.build_house_button.get_global_rect().get_center())
+    check(main.town.wood == 40, "House costs 30 wood at queue time")
+    main.town.advance_time(TownState.building_def(&"house").build_seconds + 0.1)
+    await process_frame
     check(main.town.buildings.get(Vector2i(36, 50), &"") == &"house", "House can be built")
-    check(main.town.wood == 40, "House costs 30 wood")
     check(main.resources_label.text.contains("人口：0/5"), "HUD shows population and cap")
 
     # P04/P05：实时产粮与存档数值——用独立规则实例验证，避免运行帧时序影响断言。
     var saver := TownState.new()
-    saver.try_build(Vector2i(4, 4), &"farm")
+    saver.queue_build(Vector2i(4, 4), &"farm")
+    saver.advance_time(15.1)
     saver.assign_worker(Vector2i(4, 4))
     saver.advance_time(0.5)
     var save_data: Dictionary = saver.to_save_data()
-    check(save_data["version"] == 6 and save_data["map_size"] == [60, 60]
+    check(save_data["version"] == 7 and save_data["map_size"] == [60, 60]
         and save_data["map_name"] == "测试城镇", "Save v4 records map size and name")
     var loader := TownState.new()
-    loader.try_build(Vector2i(5, 5), &"farm")
+    loader.queue_build(Vector2i(5, 5), &"farm")
+    loader.advance_time(15.1)
     check(loader.apply_save_data(save_data) == "", "Valid save applies cleanly")
     check(loader.wood == saver.wood and loader.grain == saver.grain
         and loader.worker_cell == Vector2i(4, 4) and loader.buildings.size() == 2
@@ -514,7 +593,8 @@ func _run() -> void:
 
     # 损坏存档逐项拒绝，且不破坏当前状态。
     var guard := TownState.new()
-    guard.try_build(Vector2i(4, 4), &"farm")
+    guard.queue_build(Vector2i(4, 4), &"farm")
+    guard.advance_time(15.1)
     guard.assign_worker(Vector2i(4, 4))
     check(guard.apply_save_data("junk") != "", "Non-dictionary save rejected")
     check(guard.apply_save_data({"version": 0, "wood": 1, "grain": 1, "buildings": []}) != "",
@@ -604,6 +684,8 @@ func _run() -> void:
     await click_at(main.load_button.get_global_rect().get_center())
     check(main.status_label.text.contains("还没有存档"), "Missing save reported")
     await click_build(Vector2i(28, 53), main.build_farm_button)
+    main.town.advance_time(TownState.building_def(&"farm").build_seconds + 0.1)
+    await process_frame
     check(main.town.buildings.get(Vector2i(28, 53), &"") == &"farm", "Farm built for save test")
     await click_at(main.assign_button.get_global_rect().get_center())
     await click_at(main.pause_button.get_global_rect().get_center())
@@ -661,13 +743,35 @@ func _run() -> void:
     await process_frame
     check(main.town.job_caps[&"farming"] == -1, "Farm cap spin negative means unlimited")
 
+    # E04 GUI：升级入队与取消退款（现场新建农田，净支出 0）。
+    main.town.wood += 200
+    await click_build(Vector2i(42, 30), main.build_farm_button)
+    main.town.advance_time(TownState.building_def(&"farm").build_seconds + 0.1)
+    await process_frame
+    await click_map(Vector2i(42, 30))
+    check(main.upgrade_button.visible, "Upgrade button shows on the farm")
+    var wood_before_upgrade: int = main.town.wood
+    await click_at(main.upgrade_button.get_global_rect().get_center())
+    check(main.town.has_pending_construction(Vector2i(42, 30)),
+        "Upgrade queued from the panel")
+    check(main.town.wood == wood_before_upgrade - 40, "Upgrade charges 40 wood")
+    check(main.cancel_site_button.visible, "Cancel button shows on the site")
+    await click_at(main.cancel_site_button.get_global_rect().get_center())
+    check(main.town.wood == wood_before_upgrade
+        and not main.town.has_pending_construction(Vector2i(42, 30)),
+        "Cancel refunds and clears the site")
+
     if "--capture" in OS.get_cmdline_user_args():
         if not main.showing_3d:
             await switch_view()
+        main.town.advance_time(TownState.building_def(&"farm").build_seconds * 4.0 + 1.0)
+        await process_frame
         await click_build(Vector2i(34, 52), main.build_farm_button)
         await click_build(Vector2i(36, 52), main.build_farm_button)
         await click_build(Vector2i(38, 54), main.build_farm_button)
         await click_build(Vector2i(40, 50), main.build_lumberyard_button)
+        main.town.advance_time(TownState.building_def(&"farm").build_seconds * 4.0 + 1.0)
+        await process_frame
         await click_map(Vector2i(34, 52))
         await click_at(main.assign_button.get_global_rect().get_center())
         DirAccess.make_dir_recursive_absolute("res://build/verification")

@@ -13,6 +13,7 @@ var _last_shown_grain: int = -1
 var _last_shown_wood: int = -1
 var _last_shown_population: int = -1
 var _last_shown_staffed: int = -1
+var _last_construction_sig: int = -1
 # 左键拖动平移 vs 点击选中：按下先记为“待定点击”，位移超过阈值才算拖拽；
 # 松手时没超过阈值就当作一次普通点击。阈值放宽可减少触摸板的误拖拽。
 const DRAG_THRESHOLD_PX: float = 8.0
@@ -40,6 +41,8 @@ var _left_press_position: Vector2 = Vector2.ZERO
 @onready var build_farm_button: Button = $UI/BuildFarmButton
 @onready var build_lumberyard_button: Button = $UI/BuildLumberyardButton
 @onready var build_house_button: Button = $UI/BuildHouseButton
+@onready var upgrade_button: Button = $UI/UpgradeButton
+@onready var cancel_site_button: Button = $UI/CancelSiteButton
 @onready var job_priority_button: Button = $UI/JobPriorityButton
 @onready var job_farm_cap_spin: SpinBox = $UI/JobFarmCapSpin
 @onready var job_lumber_cap_spin: SpinBox = $UI/JobLumberCapSpin
@@ -62,6 +65,8 @@ func _ready() -> void:
 	build_lumberyard_button.pressed.connect(_on_build_pressed.bind(&"lumberyard"))
 	build_house_button.pressed.connect(_on_build_pressed.bind(&"house"))
 	job_priority_button.pressed.connect(_on_job_priority_pressed)
+	upgrade_button.pressed.connect(_on_upgrade_pressed)
+	cancel_site_button.pressed.connect(_on_cancel_site_pressed)
 	job_farm_cap_spin.value_changed.connect(_on_job_cap_changed.bind(&"farming"))
 	job_lumber_cap_spin.value_changed.connect(_on_job_cap_changed.bind(&"lumber"))
 	var farm_def: BuildingDef = TownState.building_def(&"farm")
@@ -184,7 +189,16 @@ func _select_cell(cell: Vector2i) -> void:
 
 
 func _refresh_selection_panel() -> void:
-	if town.buildings.has(selected_cell):
+	if town.has_pending_construction(selected_cell):
+		var entry: Dictionary = town.construction_entry_at(selected_cell)
+		var site_def: BuildingDef = TownState.building_def(entry["def_id"])
+		var state_text: String = "进度：%d%%" % int(entry["progress"] * 100.0) \
+			if entry["active"] else "排队等候建筑工"
+		selection_label.text = "施工中：%s（占地 %d×%d）\n位置：(%d, %d)\n%s\n完工到 Lv%d；取消可全额退款。" % [
+			site_def.display_name, site_def.footprint.x, site_def.footprint.y,
+			selected_cell.x, selected_cell.y, state_text, entry["level"],
+		]
+	elif town.buildings.has(selected_cell):
 		var def: BuildingDef = TownState.building_def(town.buildings[selected_cell])
 		var worker_text: String = TownState.WORKER_NAME if town.worker_is_at(selected_cell) else "无"
 		var progress_text: String = "产出进度：%d%%" % int(town.farm_progress_ratio(selected_cell) * 100.0) \
@@ -197,8 +211,8 @@ func _refresh_selection_panel() -> void:
 			detail_line = "岗位：%d/%d%s" % [town.building_jobs_filled(selected_cell), def.jobs, ruan_mark]
 		else:
 			detail_line = "工作者：%s" % worker_text
-		selection_label.text = "选中：%s（占地 %d×%d）\n位置：(%d, %d)\n%s\n%s" % [
-			def.display_name, def.footprint.x, def.footprint.y,
+		selection_label.text = "选中：%s Lv%d（占地 %d×%d）\n位置：(%d, %d)\n%s\n%s" % [
+			def.display_name, town.building_level(selected_cell), def.footprint.x, def.footprint.y,
 			selected_cell.x, selected_cell.y, detail_line, progress_text
 		]
 	elif _is_buildable_cell(selected_cell):
@@ -223,6 +237,8 @@ func _worker_summary() -> String:
 
 
 func _update_action_buttons() -> void:
+	var site_entry: Dictionary = town.construction_entry_at(selected_cell)
+	var site_selected: bool = not site_entry.is_empty()
 	var def: BuildingDef = TownState.building_def(town.buildings.get(selected_cell, &""))
 	var building_selected: bool = def != null
 	var assignable: bool = building_selected and def.worker_assignable
@@ -230,9 +246,21 @@ func _update_action_buttons() -> void:
 	withdraw_button.visible = building_selected
 	assign_button.disabled = not assignable or town.worker_is_at(selected_cell)
 	withdraw_button.disabled = town.worker_cell == TownState.INVALID_CELL
-	build_farm_button.visible = not building_selected
-	build_lumberyard_button.visible = not building_selected
-	build_house_button.visible = not building_selected
+	# 升级：已落成、未满级、没有施工中的项目。
+	var can_upgrade: bool = building_selected \
+		and def.max_level > town.building_level(selected_cell) \
+		and not town.has_pending_construction(selected_cell)
+	upgrade_button.visible = can_upgrade
+	if can_upgrade:
+		upgrade_button.text = "升级到 Lv%d（%d木）" % [
+			town.building_level(selected_cell) + 1, def.upgrade_wood_cost]
+		upgrade_button.disabled = town.wood < def.upgrade_wood_cost
+	cancel_site_button.visible = site_selected
+	# 建造按钮：未选中建筑与工地时显示。
+	var show_build: bool = not building_selected and not site_selected
+	build_farm_button.visible = show_build
+	build_lumberyard_button.visible = show_build
+	build_house_button.visible = show_build
 	build_farm_button.disabled = not town.can_build_at(selected_cell, &"farm") \
 		or town.wood < TownState.building_def(&"farm").wood_cost
 	build_lumberyard_button.disabled = not town.can_build_at(selected_cell, &"lumberyard") \
@@ -254,12 +282,24 @@ func _on_withdraw_pressed() -> void:
 
 
 func _on_build_pressed(def_id: StringName) -> void:
-	var message: String = town.try_build(selected_cell, def_id)
-	if town.buildings.get(selected_cell, &"") == def_id:
-		# 临时交互约定：建造成功后自动选中新建筑，方便立即查看信息。
-		message += " 已自动选中。"
+	var message: String = town.queue_build(selected_cell, def_id)
+	if town.has_pending_construction(selected_cell):
+		# 临时交互约定：排队成功后工地保持选中，方便跟踪进度与取消。
+		message += " 工地已选中。"
 		_select_cell(selected_cell)
 		_refresh_ui(message)
+
+
+func _on_upgrade_pressed() -> void:
+	var message: String = town.queue_upgrade(selected_cell)
+	_select_cell(selected_cell)
+	_refresh_ui(message)
+
+
+func _on_cancel_site_pressed() -> void:
+	var message: String = town.cancel_construction(selected_cell)
+	_select_cell(selected_cell)
+	_refresh_ui(message)
 
 
 func _on_job_priority_pressed() -> void:
@@ -326,16 +366,21 @@ func _process(delta: float) -> void:
 	if paused:
 		return
 	town.advance_time(delta)
+	var construction_sig: int = town.construction_signature()
 	if town.grain != _last_shown_grain or town.wood != _last_shown_wood \
 			or town.population != _last_shown_population \
-			or town.staffed_population() != _last_shown_staffed:
+			or town.staffed_population() != _last_shown_staffed \
+			or construction_sig != _last_construction_sig:
 		_last_shown_grain = town.grain
 		_last_shown_wood = town.wood
 		_last_shown_population = town.population
 		_last_shown_staffed = town.staffed_population()
+		_last_construction_sig = construction_sig
 		_update_resources()
 		_refresh_selection_panel()
 		_update_action_buttons()
+		map_2d.refresh()
+		map_3d.refresh()
 
 
 func _deselect_cell() -> void:
