@@ -206,11 +206,14 @@ func _refresh_selection_panel() -> void:
 		var progress_text: String = "产出进度：%d%%" % int(town.farm_progress_ratio(selected_cell) * 100.0) \
 			if def.produces != &"" else "不产出"
 		var detail_line: String
-		if def.capacity > 0:
-			detail_line = "容纳：%d 人" % def.capacity
-		elif def.jobs > 0:
+		if def.capacity_at(town.building_level(selected_cell)) > 0:
+			detail_line = "容纳：%d 人" % def.capacity_at(town.building_level(selected_cell))
+		elif def.jobs_at(town.building_level(selected_cell)) > 0:
 			var ruan_mark: String = "·阮小二在此" if town.worker_is_at(selected_cell) else ""
-			detail_line = "岗位：%d/%d%s" % [town.building_jobs_filled(selected_cell), def.jobs, ruan_mark]
+			detail_line = "岗位：%d/%d%s" % [
+				town.building_jobs_filled(selected_cell),
+				def.jobs_at(town.building_level(selected_cell)), ruan_mark,
+			]
 		else:
 			detail_line = "工作者：%s" % worker_text
 		selection_label.text = "选中：%s Lv%d（占地 %d×%d）\n位置：(%d, %d)\n%s\n%s" % [

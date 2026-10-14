@@ -651,7 +651,7 @@ func building_jobs_filled(origin: Vector2i) -> int:
 	var filled: int = job_assignment().get(origin, 0)
 	if worker_is_at(origin):
 		filled += 1
-	return mini(filled, def.jobs)
+	return mini(filled, def.jobs_at(building_level(origin)))
 
 
 func population_cap() -> int:
